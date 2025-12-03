@@ -1,0 +1,5 @@
+{
+  "name": "Messenger Retarget Pro",
+  "description": "Aplicație de automatizare pentru Facebook Messenger care identifică conversațiile inactive (18-23h) și trimite mesaje de revenire prestabilite sau generate de AI.",
+  "requestFramePermissions": []
+}
