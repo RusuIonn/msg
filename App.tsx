@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { LayoutDashboard, MessageCircle, Settings, Users, History, Link, Key, CheckCircle, XCircle, LogOut, Loader2, Filter, Info, RefreshCw, Terminal, PlayCircle, Globe, Database, Clock, Lock, Shield } from 'lucide-react';
 import { Conversation, Message, BusinessType, FacebookAPIResponse, FacebookConversationData, AuthSession } from './types';
@@ -391,6 +392,36 @@ const App: React.FC = () => {
                       </div>
                   </div>
                </div>
+               <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                  <h3 className="text-lg font-semibold mb-4 text-gray-700 flex items-center gap-2">
+                    <Clock size={18} className="text-amber-500" />
+                    Configurare Interval Urgență
+                  </h3>
+                  <p className="text-xs text-gray-500 mb-4">
+                    Setează intervalul de ore în care o conversație este considerată "urgentă" pentru follow-up.
+                  </p>
+                  <div className="flex items-center gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-500 mb-1">DE LA (ORE)</label>
+                      <input 
+                        type="number" 
+                        value={minUrgentHours} 
+                        onChange={(e) => setMinUrgentHours(Number(e.target.value))} 
+                        className="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm" 
+                      />
+                    </div>
+                    <div className="pt-5 text-gray-400">-</div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-500 mb-1">PÂNĂ LA (ORE)</label>
+                      <input 
+                        type="number" 
+                        value={maxUrgentHours} 
+                        onChange={(e) => setMaxUrgentHours(Number(e.target.value))} 
+                        className="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm" 
+                      />
+                    </div>
+                  </div>
+                </div>
              </div>
            </div>
         )}
