@@ -1,5 +1,6 @@
 
-import { AccessKey } from '../types';
+import { AccessKey } from '@/types';
+import { v4 as uuidv4 } from 'uuid';
 
 const STORAGE_KEY = 'mrp_access_keys';
 
@@ -26,7 +27,7 @@ export const authService = {
     // Check if active key already exists for this pair? (Optional, skipping for flexibility)
     
     const newKey: AccessKey = {
-      key: crypto.randomUUID(), // Unique Key
+      key: uuidv4(), // Unique Key
       userId,
       pageId,
       createdAt: Date.now(),

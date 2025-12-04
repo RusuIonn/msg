@@ -1,14 +1,16 @@
-import { GoogleGenAI } from "@google/genai";
-import { Message } from "../types";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { Message } from "@/types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || 'mock-key' });
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+
+const ai = new GoogleGenerativeAI(GEMINI_API_KEY || 'mock-key');
 
 export const generateFollowUpMessage = async (
   partnerName: string,
   history: Message[]
 ): Promise<string> => {
   try {
-    if (!process.env.API_KEY) {
+    if (!GEMINI_API_KEY) {
       console.warn("API Key not found, using fallback mock response");
       return `Bună ${partnerName}, am vrut să mă asigur că ați primit ultimul meu mesaj. Vă pot ajuta cu alte informații?`;
     }
@@ -27,12 +29,12 @@ export const generateFollowUpMessage = async (
       Nu fi agresiv. Întreabă dacă mai au nevoie de ajutor sau dacă au întrebări.
     `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-    });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash"});
 
-    return response.text.trim();
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+    return text.trim();
   } catch (error) {
     console.error("Error generating message:", error);
     return `Bună ${partnerName}, am vrut să mă asigur că totul este în regulă. Mai aveți întrebări?`;

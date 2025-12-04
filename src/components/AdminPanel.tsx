@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { AccessKey } from '../types';
-import { authService } from '../services/authService';
+import { AccessKey } from '@/types';
+import { authService } from '@/services/authService';
 import { Key, Trash2, RefreshCw, Copy, ShieldCheck, User, Layout, X } from 'lucide-react';
 
 interface Props {

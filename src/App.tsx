@@ -2,12 +2,12 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { LayoutDashboard, MessageCircle, Settings, Users, History, Link, Key, CheckCircle, XCircle, LogOut, Loader2, Filter, Info, RefreshCw, Terminal, PlayCircle, Globe, Database, Clock, Lock, Shield } from 'lucide-react';
-import { Conversation, Message, BusinessType, FacebookAPIResponse, FacebookConversationData, AuthSession } from './types';
-import { getMockConversations, DEFAULT_PRESET_MESSAGE } from './constants';
-import { ConversationItem } from './components/ConversationItem';
-import { ChatWindow } from './components/ChatWindow';
-import { LoginScreen } from './components/LoginScreen';
-import { AdminPanel } from './components/AdminPanel';
+import { Conversation, Message, BusinessType, FacebookAPIResponse, FacebookConversationData, AuthSession } from '@/types';
+import { getMockConversations, DEFAULT_PRESET_MESSAGE } from '@/constants';
+import { ConversationItem } from '@/components/ConversationItem';
+import { ChatWindow } from '@/components/ChatWindow';
+import { LoginScreen } from '@/components/LoginScreen';
+import { AdminPanel } from '@/components/AdminPanel';
 
 // Styles for the sidebar nav items
 const NavItem = ({ icon: Icon, label, active, onClick, isMobile = false }: { icon: any, label: string, active?: boolean, onClick: () => void, isMobile?: boolean }) => (

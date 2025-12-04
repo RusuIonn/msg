@@ -1,5 +1,5 @@
 import React from 'react';
-import { Conversation } from '../types';
+import { Conversation } from '@/types';
 import { Clock, CheckCheck, AlertCircle } from 'lucide-react';
 
 interface Props {

@@ -1,8 +1,8 @@
 
 import React, { useState } from 'react';
 import { Key, Shield, ArrowRight, Lock, UserCog } from 'lucide-react';
-import { authService } from '../services/authService';
-import { AuthSession } from '../types';
+import { authService } from '@/services/authService';
+import { AuthSession } from '@/types';
 
 interface Props {
   onLogin: (session: AuthSession) => void;

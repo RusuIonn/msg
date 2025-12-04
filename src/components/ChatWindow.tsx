@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Conversation, Message } from '../types';
+import { Conversation, Message } from '@/types';
 import { Send, Sparkles, MessageSquareText, Settings, ArrowLeft } from 'lucide-react';
-import { generateFollowUpMessage } from '../services/geminiService';
+import { generateFollowUpMessage } from '@/services/geminiService';
 
 interface Props {
   conversation: Conversation | null;
