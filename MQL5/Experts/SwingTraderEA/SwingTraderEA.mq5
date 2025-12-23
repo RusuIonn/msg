@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2023, Your Name/Company"
 #property link      "https://www.yourwebsite.com"
-#property version   "1.20" // Version updated with comments and logging
+#property version   "1.30" // Enhanced with volatility, R/R filters and opposite signal exit
 
 //--- Input Parameters
 //--- These parameters can be adjusted from the MetaTrader 5 terminal to optimize the EA's performance.
@@ -13,6 +13,11 @@
 input double RiskPercent = 1.0; // Risk per trade as a percentage of account balance.
 input double StopLossATRMultiplier = 2.0; // Multiplier for ATR to set the Stop Loss distance.
 input double TakeProfitATRMultiplier = 3.0; // Multiplier for ATR to set the Take Profit distance.
+
+// Trade Filters & Exits
+input double MinATRVolatilityPips = 10.0; // Minimum ATR value in pips to consider trading.
+input double MinRiskRewardRatio = 1.5;   // Minimum Risk/Reward ratio (e.g., 1.5 means TP is at least 1.5x SL).
+input bool   ExitOnOppositeSignal = true;  // Close open trades if an opposite signal appears.
 
 // Indicator Settings
 input ENUM_TIMEFRAMES HigherTimeframe = PERIOD_H4; // Higher Timeframe used to determine the main trend direction.
@@ -187,14 +192,15 @@ bool CheckBuyCondition()
 {
    //--- Get indicator values for the last 2 completed bars.
    //--- We use index 0 for the most recently closed bar, and 1 for the one before it.
-   double fastMA[], slowMA[], rsi[], macdMain[], macdSignal[], trendMA[];
+   double fastMA[], slowMA[], rsi[], macdMain[], macdSignal[], trendMA[], atrValue[];
 
    if(CopyBuffer(FastMA_Handle, 0, 1, 2, fastMA) < 2 ||
       CopyBuffer(SlowMA_Handle, 0, 1, 2, slowMA) < 2 ||
       CopyBuffer(RSI_Handle, 0, 1, 2, rsi) < 2 ||
       CopyBuffer(MACD_Handle, 0, 1, 2, macdMain) < 2 ||
       CopyBuffer(MACD_Handle, 1, 1, 2, macdSignal) < 2 ||
-      CopyBuffer(TrendMA_Handle, 0, 1, 1, trendMA) < 1) // Corrected to read from the last closed bar
+      CopyBuffer(TrendMA_Handle, 0, 1, 1, trendMA) < 1 ||
+      CopyBuffer(ATR_Handle, 0, 1, 1, atrValue) < 1)
      {
       printf("Error copying indicator buffers for buy condition");
       return(false);
@@ -203,19 +209,22 @@ bool CheckBuyCondition()
    //--- Get the close price of the last completed bar.
    double lastClose = iClose(_Symbol, _Period, 1);
 
-   //--- 1. Trend Condition (Higher Timeframe): Price must be above the slow MA on the higher timeframe.
+   //--- 1. Volatility Condition: Market must have enough movement.
+   bool isVolatileEnough = (atrValue[0] > (MinATRVolatilityPips * _Point));
+
+   //--- 2. Trend Condition (Higher Timeframe): Price must be above the slow MA on the higher timeframe.
    bool isHigherTFUptrend = (lastClose > trendMA[0]);
 
-   //--- 2. Entry Conditions (Current Timeframe).
+   //--- 3. Entry Conditions (Current Timeframe).
    bool isLocalUptrend = (fastMA[0] > slowMA[0]);
    // Bullish Crossover: MACD main line was below the signal line and is now above.
    bool isMomentumBuy = (macdMain[1] < macdSignal[1]) && (macdMain[0] > macdSignal[0]);
 
-   //--- 3. Strength Condition: RSI should be above 50, indicating bullish territory.
+   //--- 4. Strength Condition: RSI should be above 50, indicating bullish territory.
    bool isStrengthBuy = (rsi[0] > 50);
 
    //--- All conditions must be true to open a buy trade.
-   return(isHigherTFUptrend && isLocalUptrend && isMomentumBuy && isStrengthBuy);
+   return(isVolatileEnough && isHigherTFUptrend && isLocalUptrend && isMomentumBuy && isStrengthBuy);
 }
 
 //+------------------------------------------------------------------+
@@ -225,14 +234,15 @@ bool CheckBuyCondition()
 bool CheckSellCondition()
 {
    //--- Get indicator values for the last 2 completed bars.
-   double fastMA[], slowMA[], rsi[], macdMain[], macdSignal[], trendMA[];
+   double fastMA[], slowMA[], rsi[], macdMain[], macdSignal[], trendMA[], atrValue[];
 
    if(CopyBuffer(FastMA_Handle, 0, 1, 2, fastMA) < 2 ||
       CopyBuffer(SlowMA_Handle, 0, 1, 2, slowMA) < 2 ||
       CopyBuffer(RSI_Handle, 0, 1, 2, rsi) < 2 ||
       CopyBuffer(MACD_Handle, 0, 1, 2, macdMain) < 2 ||
       CopyBuffer(MACD_Handle, 1, 1, 2, macdSignal) < 2 ||
-      CopyBuffer(TrendMA_Handle, 0, 1, 1, trendMA) < 1) // Corrected to read from the last closed bar
+      CopyBuffer(TrendMA_Handle, 0, 1, 1, trendMA) < 1 ||
+      CopyBuffer(ATR_Handle, 0, 1, 1, atrValue) < 1)
      {
       printf("Error copying indicator buffers for sell condition");
       return(false);
@@ -241,19 +251,22 @@ bool CheckSellCondition()
    //--- Get the close price of the last completed bar.
    double lastClose = iClose(_Symbol, _Period, 1);
 
-   //--- 1. Trend Condition (Higher Timeframe): Price must be below the slow MA.
+   //--- 1. Volatility Condition: Market must have enough movement.
+   bool isVolatileEnough = (atrValue[0] > (MinATRVolatilityPips * _Point));
+
+   //--- 2. Trend Condition (Higher Timeframe): Price must be below the slow MA.
    bool isHigherTFDowntrend = (lastClose < trendMA[0]);
 
-   //--- 2. Entry Conditions (Current Timeframe).
+   //--- 3. Entry Conditions (Current Timeframe).
    bool isLocalDowntrend = (fastMA[0] < slowMA[0]);
    // Bearish Crossover: MACD main line was above the signal line and is now below.
    bool isMomentumSell = (macdMain[1] > macdSignal[1]) && (macdMain[0] < macdSignal[0]);
 
-   //--- 3. Strength Condition: RSI should be below 50, indicating bearish territory.
+   //--- 4. Strength Condition: RSI should be below 50, indicating bearish territory.
    bool isStrengthSell = (rsi[0] < 50);
 
    //--- All conditions must be true to open a sell trade.
-   return(isHigherTFDowntrend && isLocalDowntrend && isMomentumSell && isStrengthSell);
+   return(isVolatileEnough && isHigherTFDowntrend && isLocalDowntrend && isMomentumSell && isStrengthSell);
 }
 
 //+------------------------------------------------------------------+
@@ -333,11 +346,55 @@ void ManageTrailingStop()
 }
 
 //+------------------------------------------------------------------+
+//| Manage Exit on Opposite Signal                                   |
+//| Closes an open position if a valid counter-signal appears.       |
+//+------------------------------------------------------------------+
+void ManageExitOnOppositeSignal()
+{
+   //--- Exit if the feature is disabled by the user.
+   if(!ExitOnOppositeSignal)
+     {
+      return;
+     }
+
+   //--- Check if a position is currently open for this symbol.
+   if(PositionSelect(_Symbol))
+     {
+      long positionType = PositionGetInteger(POSITION_TYPE);
+
+      //--- If it's a BUY position, check for a SELL signal to close it.
+      if(positionType == POSITION_TYPE_BUY)
+        {
+         if(CheckSellCondition())
+           {
+            // Close the buy position and log the reason.
+            trade.PositionClose(_Symbol, "Closed on opposite (sell) signal");
+           }
+        }
+      //--- If it's a SELL position, check for a BUY signal to close it.
+      else if(positionType == POSITION_TYPE_SELL)
+        {
+         if(CheckBuyCondition())
+           {
+            // Close the sell position and log the reason.
+            trade.PositionClose(_Symbol, "Closed on opposite (buy) signal");
+           }
+        }
+     }
+}
+
+//+------------------------------------------------------------------+
 //| Expert tick function                                             |
 //| This is the main function that is called on every price change.  |
 //+------------------------------------------------------------------+
 void OnTick()
 {
+   //--- Validate Risk/Reward ratio from inputs. If it's not met, don't trade.
+   if(StopLossATRMultiplier > 0 && (TakeProfitATRMultiplier / StopLossATRMultiplier) < MinRiskRewardRatio)
+     {
+      return;
+     }
+
    //--- Manage open positions first (e.g., trailing stops).
    ManageTrailingStop();
 
@@ -349,6 +406,9 @@ void OnTick()
       return;
      }
    lastBarTime = currentBarTime;
+
+   //--- Check for an early exit based on an opposite signal.
+   ManageExitOnOppositeSignal();
 
    //--- Ensure only one trade is open per symbol using the efficient PositionSelect method.
    if(PositionSelect(_Symbol))
