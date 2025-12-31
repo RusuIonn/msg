@@ -1,10 +1,11 @@
 //+------------------------------------------------------------------+
-//|    ScalpingTrendEA_MT5.mq5 (Logic based on Crossover)            |
+//|    IntradayTrendEA_MT5.mq5 (Robust Version)                      |
 //+------------------------------------------------------------------+
 #include <Trade\Trade.mqh>
 CTrade trade;
 
 //--- Inputuri
+input ENUM_TIMEFRAMES Timeframe = PERIOD_M15; // Timeframe pentru indicatori
 input ulong MagicNumber = 12345;         // Număr Magic pentru a identifica tranzacțiile EA-ului
 input double Lots = 0.1;
 input int FastMA_Period = 14;
@@ -13,16 +14,17 @@ input ENUM_MA_METHOD MA_Method = MODE_SMA;
 input int RSI_Period = 14;
 input double RSI_Buy_Level = 40;
 input double RSI_Sell_Level = 60;
-input double StopLoss_Pips = 10.0;       // Stop Loss în pips
-input double TakeProfit_Pips = 20.0;     // Take Profit în pips
-input double TrailingStart_Pips = 5.0;   // Când să înceapă trailing-ul, în pips
-input double TrailingStop_Pips = 2.0;    // Distanța trailing stop-ului față de preț, în pips
+input double StopLoss_Pips = 50.0;       // Stop Loss în pips
+input double TakeProfit_Pips = 100.0;    // Take Profit în pips
+input double TrailingStart_Pips = 25.0;  // Când să înceapă trailing-ul, în pips
+input double TrailingStop_Pips = 15.0;   // Distanța trailing stop-ului față de preț, în pips
 
 //--- Handle indicatori
 int handleFastMA, handleSlowMA, handleRSI;
 
 //--- Variabile globale
-double _pipValue; // Valoarea unui pip, calculată dinamic
+double _pipValue;   // Valoarea unui pip, calculată dinamic
+bool isNewBar;      // Flag pentru bară nouă
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -39,10 +41,10 @@ int OnInit()
         _pipValue = _Point;
     }
 
-    //--- Inițializare indicatori
-    handleFastMA = iMA(_Symbol, PERIOD_M1, FastMA_Period, 0, MA_Method, PRICE_CLOSE);
-    handleSlowMA = iMA(_Symbol, PERIOD_M1, SlowMA_Period, 0, MA_Method, PRICE_CLOSE);
-    handleRSI    = iRSI(_Symbol, PERIOD_M1, RSI_Period, PRICE_CLOSE);
+    //--- Inițializare indicatori pe timeframe-ul selectat
+    handleFastMA = iMA(_Symbol, Timeframe, FastMA_Period, 0, MA_Method, PRICE_CLOSE);
+    handleSlowMA = iMA(_Symbol, Timeframe, SlowMA_Period, 0, MA_Method, PRICE_CLOSE);
+    handleRSI    = iRSI(_Symbol, Timeframe, RSI_Period, PRICE_CLOSE);
 
     if(handleFastMA == INVALID_HANDLE || handleSlowMA == INVALID_HANDLE || handleRSI == INVALID_HANDLE)
     {
@@ -53,7 +55,7 @@ int OnInit()
     //--- Setare Magic Number pentru CTrade
     trade.SetExpertMagicNumber(MagicNumber);
 
-    Print("EA scalping MT5 activ!");
+    Print("EA Intraday MT5 activ pe timeframe ", EnumToString(Timeframe));
     return(INIT_SUCCEEDED);
 }
 
@@ -75,61 +77,105 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-    //--- Gestionare Trailing Stop pentru pozițiile deschise
+    //--- Gestionarea Trailing Stop rulează la fiecare tick pentru precizie
     ManageTrailingStop();
 
-    // Verificăm dacă există deja o poziție deschisă de acest EA pe acest simbol
-    if(HasOpenPosition())
+    //--- Verificăm dacă a apărut o bară nouă pe timeframe-ul de lucru
+    CheckForNewBar();
+    if(!isNewBar)
     {
-        return;
+        return; // Ieșim dacă nu este bară nouă, logica de intrare rulează o singură dată pe bară
     }
 
-    //--- Obținere date indicatori (de pe ultimele 2 bare pentru a detecta încrucișarea)
-    double fastMA[2], slowMA[2], rsi[2];
-    if(!GetIndicatorValues(0, 2, fastMA, slowMA, rsi))
+    //--- Obținem datele de pe ultimele 3 bare pentru a detecta încrucișarea pe bare închise
+    double fastMA[3], slowMA[3], rsi[3];
+    if(!GetIndicatorValues(0, 3, fastMA, slowMA, rsi))
     {
-        return; // Nu am putut obține valorile, ieșim
+        return; // Eroare la citirea indicatorilor
     }
 
-    //--- Definim valorile pentru lizibilitate
-    double fastMA_current = fastMA[0];
-    double fastMA_prev = fastMA[1];
-    double slowMA_current = slowMA[0];
-    double slowMA_prev = slowMA[1];
-    double rsi_current = rsi[0];
+    //--- Definim valorile pentru lizibilitate (folosim index 1 și 2 - bare închise)
+    // Index 0 = bara curentă (în formare), Index 1 = ultima bară închisă, Index 2 = a doua cea mai recentă bară închisă
+    double fastMA_recent = fastMA[1];
+    double fastMA_older = fastMA[2];
+    double slowMA_recent = slowMA[1];
+    double slowMA_older = slowMA[2];
+    double rsi_recent = rsi[1];
 
-    //--- Logica de tranzacționare bazată pe încrucișare
-    // Condiție Buy (încrucișare de jos în sus)
-    bool buySignal = fastMA_prev < slowMA_prev && fastMA_current > slowMA_current && rsi_current > RSI_Buy_Level;
+    //--- Logica de tranzacționare bazată pe încrucișare pe bare închise
+    bool buySignal = fastMA_older < slowMA_older && fastMA_recent > slowMA_recent && rsi_recent > RSI_Buy_Level;
+    bool sellSignal = fastMA_older > slowMA_older && fastMA_recent < slowMA_recent && rsi_recent < RSI_Sell_Level;
 
+    //--- Managementul pozițiilor
+    ulong buyTicket = GetOpenPositionTicket(POSITION_TYPE_BUY);
+    ulong sellTicket = GetOpenPositionTicket(POSITION_TYPE_SELL);
+
+    // Dacă avem un semnal de cumpărare
     if(buySignal)
     {
-        OpenPosition(ORDER_TYPE_BUY);
+        // Dacă există o poziție de vânzare deschisă, o închidem (inversare)
+        if(sellTicket > 0)
+        {
+            trade.PositionClose(sellTicket);
+        }
+        // Dacă nu există deja o poziție de cumpărare, deschidem una nouă
+        if(buyTicket == 0)
+        {
+            OpenPosition(ORDER_TYPE_BUY);
+        }
     }
 
-    // Condiție Sell (încrucișare de sus în jos)
-    bool sellSignal = fastMA_prev > slowMA_prev && fastMA_current < slowMA_current && rsi_current < RSI_Sell_Level;
-
+    // Dacă avem un semnal de vânzare
     if(sellSignal)
     {
-        OpenPosition(ORDER_TYPE_SELL);
+        // Dacă există o poziție de cumpărare deschisă, o închidem (inversare)
+        if(buyTicket > 0)
+        {
+            trade.PositionClose(buyTicket);
+        }
+        // Dacă nu există deja o poziție de vânzare, deschidem una nouă
+        if(sellTicket == 0)
+        {
+            OpenPosition(ORDER_TYPE_SELL);
+        }
     }
 }
 
+//+------------------------------------------------------------------+
+//| Verifică dacă a apărut o bară nouă pe timeframe-ul specificat    |
+//+------------------------------------------------------------------+
+void CheckForNewBar()
+{
+    static datetime lastBarTime = 0;
+    datetime currentBarTime = (datetime)SeriesInfoInteger(_Symbol, Timeframe, SERIES_LASTBAR_DATE);
+
+    if(lastBarTime < currentBarTime)
+    {
+        isNewBar = true;
+        lastBarTime = currentBarTime;
+    }
+    else
+    {
+        isNewBar = false;
+    }
+}
 
 //+------------------------------------------------------------------+
-//| Verifică dacă există o poziție deschisă de acest EA pe simbolul curent |
+//| Returnează ticket-ul unei poziții deschise de un anumit tip      |
 //+------------------------------------------------------------------+
-bool HasOpenPosition()
+ulong GetOpenPositionTicket(ENUM_POSITION_TYPE type)
 {
     for(int i = PositionsTotal() - 1; i >= 0; i--)
     {
         if(PositionGetSymbol(i) == _Symbol && PositionGetInteger(POSITION_MAGIC) == MagicNumber)
         {
-            return true; // Am găsit o poziție care corespunde
+            if(PositionGetInteger(POSITION_TYPE) == type)
+            {
+                return PositionGetInteger(POSITION_TICKET);
+            }
         }
     }
-    return false; // Nu am găsit nicio poziție care să corespundă
+    return 0; // Nu am găsit nicio poziție de tipul specificat
 }
 
 
@@ -138,6 +184,7 @@ bool HasOpenPosition()
 //+------------------------------------------------------------------+
 bool GetIndicatorValues(int startIndex, int count, double &fastMA[], double &slowMA[], double &rsi[])
 {
+    // Copiem datele în array-uri
     if(CopyBuffer(handleFastMA, 0, startIndex, count, fastMA) < count ||
        CopyBuffer(handleSlowMA, 0, startIndex, count, slowMA) < count ||
        CopyBuffer(handleRSI, 0, startIndex, count, rsi) < count)
@@ -145,10 +192,6 @@ bool GetIndicatorValues(int startIndex, int count, double &fastMA[], double &slo
         Print("Eroare la copierea datelor din indicatori!");
         return false;
     }
-    // Datele vin în ordine cronologică inversă, le inversăm pentru o logică mai intuitivă
-    ArraySetAsSeries(fastMA, true);
-    ArraySetAsSeries(slowMA, true);
-    ArraySetAsSeries(rsi, true);
     return true;
 }
 
@@ -216,34 +259,24 @@ void ManageTrailingStop()
                 if(positionType == POSITION_TYPE_BUY)
                 {
                     double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-                    // Verificăm dacă profitul a atins nivelul de start al trailing-ului
                     if(currentPrice - openPrice > trailingStart)
                     {
                         double newSL = currentPrice - trailingStop;
-                        // Mutăm SL-ul doar dacă noul SL este mai bun (mai mare) decât cel curent
                         if(newSL > currentSL)
                         {
-                            if(!trade.PositionModify(ticket, newSL, currentTP))
-                            {
-                                Print("Eroare la modificarea Trailing Stop pentru Buy: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription());
-                            }
+                            trade.PositionModify(ticket, newSL, currentTP);
                         }
                     }
                 }
                 else if(positionType == POSITION_TYPE_SELL)
                 {
                     double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-                    // Verificăm dacă profitul a atins nivelul de start al trailing-ului
                     if(openPrice - currentPrice > trailingStart)
                     {
                         double newSL = currentPrice + trailingStop;
-                        // Mutăm SL-ul doar dacă noul SL este mai bun (mai mic) decât cel curent
                         if(newSL < currentSL || currentSL == 0)
                         {
-                           if(!trade.PositionModify(ticket, newSL, currentTP))
-                           {
-                               Print("Eroare la modificarea Trailing Stop pentru Sell: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription());
-                           }
+                           trade.PositionModify(ticket, newSL, currentTP);
                         }
                     }
                 }
