@@ -33,6 +33,13 @@ input int      MaxOpenTrades = 1;       // Numarul maxim de tranzactii (1 = fara
 input ulong    MagicNumber = 12345;     // Numarul Magic al EA-ului
 input int      TrailingStop = 30;       // Pasi Trailing Stop (0 = dezactivat)
 
+sinput group "Filtre de Timp"
+input bool     EnableTimeFilter = true; // Activeaza/Dezactiveaza filtrul de tranzactionare pe ore
+input int      TradingHourStart = 9;    // Ora de incepere a tranzactionarii (ora serverului)
+input int      TradingHourEnd = 17;     // Ora de incheiere a tranzactionarii (ora serverului)
+input bool     EnableFridayClose = true;// Activeaza/Dezactiveaza inchiderea automata Vineri
+input int      FridayCloseHour = 20;    // Ora de inchidere a tranzactiilor Vineri (ora serverului)
+
 //--- Handle-uri pentru indicatori
 int h_FastMA;
 int h_SlowMA;
@@ -108,10 +115,14 @@ void OnDeinit(const int reason)
 
 void HandleTrailingStop();
 void CheckForNewTrade();
+void HandleFridayClose();
 
 //--- Functia tick a expertului
 void OnTick()
   {
+   //--- Managementul inchiderii de Vineri ruleaza la fiecare tick
+   HandleFridayClose();
+
    //--- Managementul Trailing Stop ruleaza la fiecare tick
    HandleTrailingStop();
 
@@ -125,6 +136,17 @@ void OnTick()
 //+------------------------------------------------------------------+
 void CheckForNewTrade()
   {
+   //--- FILTRU DE TIMP: Verifica daca tranzactionarea este permisa la ora curenta
+   if(EnableTimeFilter)
+     {
+      MqlDateTime current_time;
+      TimeCurrent(current_time);
+      if(current_time.hour < TradingHourStart || current_time.hour >= TradingHourEnd)
+        {
+         return; // In afara orelor de tranzactionare
+        }
+     }
+
    //--- Functie helper pentru verificarea unei bare noi
    static datetime last_bar_time = 0;
    datetime current_bar_time = iTime(_Symbol, _Period, 0);
@@ -254,6 +276,45 @@ double AdjustTakeProfit(double price, ENUM_ORDER_TYPE order_type)
         }
      }
    return NormalizePrice(adjusted_price);
+  }
+
+//+------------------------------------------------------------------+
+//| Gestioneaza inchiderea automata a tranzactiilor Vineri.          |
+//+------------------------------------------------------------------+
+void HandleFridayClose()
+  {
+   //--- Verifica daca optiunea este activata
+   if(!EnableFridayClose)
+      return;
+
+   //--- Preia timpul curent al serverului
+   MqlDateTime current_time;
+   TimeCurrent(current_time);
+
+   //--- Verifica daca este Vineri si ora de inchidere a fost atinsa
+   if(current_time.day_of_week == FRIDAY && current_time.hour >= FridayCloseHour)
+     {
+      //--- Itereaza prin toate pozitiile si le inchide
+      for(int i = PositionsTotal() - 1; i >= 0; i--)
+        {
+         ulong ticket = PositionGetTicket(i);
+         if(PositionSelectByTicket(ticket))
+           {
+            if(PositionGetInteger(POSITION_MAGIC) == MagicNumber &&
+               PositionGetString(POSITION_SYMBOL) == _Symbol)
+              {
+               if(!trade.PositionClose(ticket))
+                 {
+                  Print("Eroare la inchiderea pozitiei #", ticket, " Vineri: ", trade.ResultRetcodeDescription());
+                 }
+               else
+                 {
+                  Print("Pozitia #", ticket, " a fost inchisa automat Vineri.");
+                 }
+              }
+           }
+        }
+     }
   }
 //+------------------------------------------------------------------+
 //| Numara pozitiile deschise de acest EA pe graficul curent.        |
