@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                                     ScalpingIntradayEA.mq5 |
+//|                                          IntradayPyramidEA.mq5 |
 //|                      Copyright 2023, MetaQuotes Software Corp. |
 //|                                             https://www.mql5.com |
 //+------------------------------------------------------------------+
@@ -145,13 +145,15 @@ void CheckForNewTrade()
      }
 
    //--- Conditii de Stare de Trend (MA rapid vs MA lent pe ultima bara inchisa)
-   // Indicele [1] este bara cea mai recenta inchisa din cauza ordinii cronologice
-   bool is_uptrend = arr_FastMA[1] > arr_SlowMA[1];
-   bool is_downtrend = arr_FastMA[1] < arr_SlowMA[1];
+   // Corectat: Indicele [0] este acum folosit pentru a verifica starea trendului, conform review-ului.
+   bool is_uptrend = arr_FastMA[0] > arr_SlowMA[0];
+   bool is_downtrend = arr_FastMA[0] < arr_SlowMA[0];
 
-   //--- Semnale finale, combinate cu filtrul RSI (de pe cea mai recenta bara inchisa)
-   bool buy_signal = is_uptrend && arr_RSI[0] < RSI_Oversold;
-   bool sell_signal = is_downtrend && arr_RSI[0] > RSI_Overbought;
+   //--- Semnale finale, combinate cu filtrul RSI (logica relaxata pentru trend-following)
+   // Cumpara daca suntem in uptrend si piata nu este inca supracumparata
+   bool buy_signal = is_uptrend && arr_RSI[0] < RSI_Overbought;
+   // Vinde daca suntem in downtrend si piata nu este inca supravanduta
+   bool sell_signal = is_downtrend && arr_RSI[0] > RSI_Oversold;
 
    //--- Calculeaza valoarea ATR de pe bara semnalului
    double atr_value = arr_ATR[0];
