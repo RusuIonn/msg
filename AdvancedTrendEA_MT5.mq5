@@ -1,12 +1,11 @@
 //+------------------------------------------------------------------+
-//|    AdvancedTrendEA_MT5.mq5                                       |
+//|    AdvancedTrendEA_MT5.mq5 (with Multi-Timeframe Filter)         |
 //+------------------------------------------------------------------+
 #include <Trade\Trade.mqh>
 CTrade trade;
 
-//--- Inputuri Strategie
-input ENUM_TIMEFRAMES Timeframe = PERIOD_M15; // Timeframe pentru indicatori
-input ulong MagicNumber = 54321;         // Număr Magic unic pentru acest EA
+//--- Inputuri Strategie de Execuție
+input ENUM_TIMEFRAMES Execution_Timeframe = PERIOD_M15; // Timeframe-ul pe care se execută tranzacțiile
 input int FastMA_Period = 14;
 input int SlowMA_Period = 50;
 input ENUM_MA_METHOD MA_Method = MODE_SMA;
@@ -14,10 +13,15 @@ input int RSI_Period = 14;
 input double RSI_Buy_Level = 55;
 input double RSI_Sell_Level = 45;
 
+//--- Inputuri Filtru de Trend Multi-Timeframe
+input ENUM_TIMEFRAMES Trend_Timeframe = PERIOD_H1; // Timeframe-ul pentru definirea trendului principal
+input int Trend_MA_Period = 200;              // Perioada mediei mobile pentru trend
+
 //--- Inputuri Managementul Banilor și Riscului
+input ulong MagicNumber = 54321;         // Număr Magic unic pentru acest EA
 input double RiskPercent = 1.0;           // Procentul din cont riscat pe tranzacție
 input int MaxOpenTrades = 5;               // Numărul maxim de tranzacții deschise simultan
-input int ATR_Period = 14;                 // Perioada pentru ATR
+input int ATR_Period = 14;                 // Perioada pentru ATR (pe timeframe-ul de execuție)
 input double ATR_StopLoss_Multiplier = 2.0; // Multiplicator ATR pentru Stop Loss
 input double ATR_TakeProfit_Multiplier = 4.0;// Multiplicator ATR pentru Take Profit
 input double ATR_MinVolatility_Pips = 5.0; // Volatilitate minimă (ATR în pips) pentru a tranzacționa
@@ -27,7 +31,7 @@ input double TrailingStart_Pips = 25.0;  // Când să înceapă trailing-ul, în
 input double TrailingStop_Pips = 15.0;   // Distanța trailing stop-ului față de preț, în pips
 
 //--- Handle indicatori
-int handleFastMA, handleSlowMA, handleRSI, handleATR;
+int h_fastMA, h_slowMA, h_RSI, h_ATR, h_trendMA;
 
 //--- Variabile globale
 double _pipValue;   // Valoarea unui pip, calculată dinamic
@@ -41,19 +45,23 @@ int OnInit()
     if(_Digits == 3 || _Digits == 5) _pipValue = _Point * 10;
     else _pipValue = _Point;
 
-    handleFastMA = iMA(_Symbol, Timeframe, FastMA_Period, 0, MA_Method, PRICE_CLOSE);
-    handleSlowMA = iMA(_Symbol, Timeframe, SlowMA_Period, 0, MA_Method, PRICE_CLOSE);
-    handleRSI    = iRSI(_Symbol, Timeframe, RSI_Period, PRICE_CLOSE);
-    handleATR    = iATR(_Symbol, Timeframe, ATR_Period);
+    // Inițializare indicatori pentru timeframe-ul de execuție
+    h_fastMA = iMA(_Symbol, Execution_Timeframe, FastMA_Period, 0, MA_Method, PRICE_CLOSE);
+    h_slowMA = iMA(_Symbol, Execution_Timeframe, SlowMA_Period, 0, MA_Method, PRICE_CLOSE);
+    h_RSI    = iRSI(_Symbol, Execution_Timeframe, RSI_Period, PRICE_CLOSE);
+    h_ATR    = iATR(_Symbol, Execution_Timeframe, ATR_Period);
 
-    if(handleFastMA == INVALID_HANDLE || handleSlowMA == INVALID_HANDLE || handleRSI == INVALID_HANDLE || handleATR == INVALID_HANDLE)
+    // Inițializare indicator pentru filtrul de trend
+    h_trendMA = iMA(_Symbol, Trend_Timeframe, Trend_MA_Period, 0, MA_Method, PRICE_CLOSE);
+
+    if(h_fastMA==INVALID_HANDLE || h_slowMA==INVALID_HANDLE || h_RSI==INVALID_HANDLE || h_ATR==INVALID_HANDLE || h_trendMA==INVALID_HANDLE)
     {
-        Print("Eroare la crearea indicatorilor!");
+        Print("Eroare la crearea unuia sau mai multor indicatori!");
         return(INIT_FAILED);
     }
 
     trade.SetExpertMagicNumber(MagicNumber);
-    Print("Advanced Trend EA activ pe timeframe ", EnumToString(Timeframe));
+    Print("Advanced Trend EA (MTF) activ. Trend pe ", EnumToString(Trend_Timeframe), ", Execuție pe ", EnumToString(Execution_Timeframe));
     return(INIT_SUCCEEDED);
 }
 
@@ -62,10 +70,11 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-    IndicatorRelease(handleFastMA);
-    IndicatorRelease(handleSlowMA);
-    IndicatorRelease(handleRSI);
-    IndicatorRelease(handleATR);
+    IndicatorRelease(h_fastMA);
+    IndicatorRelease(h_slowMA);
+    IndicatorRelease(h_RSI);
+    IndicatorRelease(h_ATR);
+    IndicatorRelease(h_trendMA);
     Print("EA a fost oprit. Resursele au fost eliberate.");
 }
 
@@ -81,31 +90,41 @@ void OnTick()
 
     if(CountOpenTrades() >= MaxOpenTrades) return;
 
-    double fastMA[2], slowMA[2], rsi[2], atr[2];
-    if(!GetIndicatorValues(0, 2, fastMA, slowMA, rsi, atr)) return;
+    //--- Obținerea și validarea direcției trendului principal
+    double trendMA[1];
+    if(CopyBuffer(h_trendMA, 0, 1, 1, trendMA) <= 0) return;
 
-    double atr_pips = atr[1] / _pipValue;
+    double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    bool isUptrend = currentPrice > trendMA[0];
+    bool isDowntrend = currentPrice < trendMA[0];
+
+    //--- Obținerea indicatorilor de pe timeframe-ul de execuție (doar ultima bară închisă)
+    double fastMA[1], slowMA[1], rsi[1], atr[1];
+    if(!GetExecutionIndicators(fastMA, slowMA, rsi, atr)) return;
+
+    double atr_pips = atr[0] / _pipValue;
     if(atr_pips < ATR_MinVolatility_Pips) return;
 
-    double fastMA_recent = fastMA[1];
-    double slowMA_recent = slowMA[1];
-    double rsi_recent = rsi[1];
+    double fastMA_recent = fastMA[0];
+    double slowMA_recent = slowMA[0];
+    double rsi_recent = rsi[0];
 
-    // Logica de semnal bazată pe STARE pentru a permite piramidarea
+    //--- Logica de semnal bazată pe STARE, filtrată de trendul principal
     bool buySignal = fastMA_recent > slowMA_recent && rsi_recent > RSI_Buy_Level;
     bool sellSignal = fastMA_recent < slowMA_recent && rsi_recent < RSI_Sell_Level;
 
-    if(buySignal) OpenPosition(ORDER_TYPE_BUY, atr[1]);
-    if(sellSignal) OpenPosition(ORDER_TYPE_SELL, atr[1]);
+    // Doar luăm în considerare semnalele care sunt în direcția trendului principal
+    if(isUptrend && buySignal) OpenPosition(ORDER_TYPE_BUY, atr[0]);
+    if(isDowntrend && sellSignal) OpenPosition(ORDER_TYPE_SELL, atr[0]);
 }
 
 //+------------------------------------------------------------------+
-//| Verifică bară nouă                                               |
+//| Verifică bară nouă pe timeframe-ul de execuție                   |
 //+------------------------------------------------------------------+
 void CheckForNewBar()
 {
     static datetime lastBarTime = 0;
-    datetime currentBarTime = (datetime)SeriesInfoInteger(_Symbol, Timeframe, SERIES_LASTBAR_DATE);
+    datetime currentBarTime = (datetime)SeriesInfoInteger(_Symbol, Execution_Timeframe, SERIES_LASTBAR_DATE);
     if(lastBarTime < currentBarTime)
     {
         isNewBar = true;
@@ -115,32 +134,17 @@ void CheckForNewBar()
 }
 
 //+------------------------------------------------------------------+
-//| Numără tranzacțiile deschise de acest EA                         |
+//| Obține valorile indicatorilor de pe ultima bară închisă          |
 //+------------------------------------------------------------------+
-int CountOpenTrades()
+bool GetExecutionIndicators(double &fastMA[], double &slowMA[], double &rsi[], double &atr[])
 {
-    int count = 0;
-    for(int i = PositionsTotal() - 1; i >= 0; i--)
+    // Copiem datele de pe ultima bară închisă (index 1), o singură valoare
+    if(CopyBuffer(h_fastMA, 0, 1, 1, fastMA) < 1 ||
+       CopyBuffer(h_slowMA, 0, 1, 1, slowMA) < 1 ||
+       CopyBuffer(h_RSI, 0, 1, 1, rsi) < 1 ||
+       CopyBuffer(h_ATR, 0, 1, 1, atr) < 1)
     {
-        if(PositionGetSymbol(i) == _Symbol && PositionGetInteger(POSITION_MAGIC) == MagicNumber)
-        {
-            count++;
-        }
-    }
-    return count;
-}
-
-//+------------------------------------------------------------------+
-//| Obține valorile indicatorilor                                    |
-//+------------------------------------------------------------------+
-bool GetIndicatorValues(int start, int count, double &fastMA[], double &slowMA[], double &rsi[], double &atr[])
-{
-    if(CopyBuffer(handleFastMA, 0, start, count, fastMA) < count ||
-       CopyBuffer(handleSlowMA, 0, start, count, slowMA) < count ||
-       CopyBuffer(handleRSI, 0, start, count, rsi) < count ||
-       CopyBuffer(handleATR, 0, start, count, atr) < count)
-    {
-        Print("Eroare la copierea datelor din indicatori!");
+        Print("Eroare la copierea datelor din indicatorii de execuție!");
         return false;
     }
     return true;
@@ -170,7 +174,6 @@ double CalculateLotSize(double stopLossDistance)
 
     return lotSize;
 }
-
 
 //+------------------------------------------------------------------+
 //| Deschide o nouă poziție                                          |
@@ -244,5 +247,21 @@ void ManageTrailingStop()
             }
         }
     }
+}
+
+//+------------------------------------------------------------------+
+//| Numără tranzacțiile deschise de acest EA                         |
+//+------------------------------------------------------------------+
+int CountOpenTrades()
+{
+    int count = 0;
+    for(int i = PositionsTotal() - 1; i >= 0; i--)
+    {
+        if(PositionGetSymbol(i) == _Symbol && PositionGetInteger(POSITION_MAGIC) == MagicNumber)
+        {
+            count++;
+        }
+    }
+    return count;
 }
 //+------------------------------------------------------------------+
