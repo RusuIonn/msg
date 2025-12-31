@@ -259,7 +259,7 @@ int CountOpenTrades()
     int count = 0;
     for(int i = PositionsTotal() - 1; i >= 0; i--)
     {
-        if(PositionSelectByIndex(i)) // <<<<< CORECȚIE AICI: Selectăm poziția înainte de a verifica
+        if(PositionSelectByIndex(i))
         {
             if(PositionGetString(POSITION_SYMBOL) == _Symbol && PositionGetInteger(POSITION_MAGIC) == MagicNumber)
             {
