@@ -133,7 +133,13 @@ void CheckForNewTrade()
      }
 
    //--- Defineste array-urile pentru a stoca datele indicatorilor
-   double arr_FastMA[3], arr_SlowMA[3], arr_RSI[2], arr_ATR[1];
+   double arr_FastMA[3], arr_SlowMA[3], arr_RSI[2], arr_ATR[2]; // ATR size increased to 2
+
+   //--- Seteaza array-urile ca serii de timp (index 0 = bara curenta)
+   ArraySetAsSeries(arr_FastMA, true);
+   ArraySetAsSeries(arr_SlowMA, true);
+   ArraySetAsSeries(arr_RSI, true);
+   ArraySetAsSeries(arr_ATR, true);
 
    //--- Obtine valorile indicatorilor
    if(CopyBuffer(h_FastMA, 0, 1, 3, arr_FastMA) <= 0 || CopyBuffer(h_SlowMA, 0, 1, 3, arr_SlowMA) <= 0 ||
@@ -144,15 +150,15 @@ void CheckForNewTrade()
      }
 
    //--- Conditii de Crossover pentru intrare
-   // Bara 1 = bara anterioara incheiata; Bara 2 = a doua bara incheiata
-   bool buy_crossover = arr_FastMA[1] > arr_SlowMA[1] && arr_FastMA[2] <= arr_SlowMA[2];
-   bool sell_crossover = arr_FastMA[1] < arr_SlowMA[1] && arr_FastMA[2] >= arr_SlowMA[2];
+   // Index [0] = cea mai recenta bara inchisa; Index [1] = bara de dinainte
+   bool buy_crossover = arr_FastMA[0] > arr_SlowMA[0] && arr_FastMA[1] <= arr_SlowMA[1];
+   bool sell_crossover = arr_FastMA[0] < arr_SlowMA[0] && arr_FastMA[1] >= arr_SlowMA[1];
 
    //--- Semnale finale, combinate cu filtrul RSI
-   bool buy_signal = buy_crossover && arr_RSI[1] < RSI_Oversold;
-   bool sell_signal = sell_crossover && arr_RSI[1] > RSI_Overbought;
+   bool buy_signal = buy_crossover && arr_RSI[0] < RSI_Oversold;
+   bool sell_signal = sell_crossover && arr_RSI[0] > RSI_Overbought;
 
-   //--- Calculeaza valoarea ATR o singura data
+   //--- Calculeaza valoarea ATR de pe bara semnalului
    double atr_value = arr_ATR[0];
 
    if(buy_signal)
