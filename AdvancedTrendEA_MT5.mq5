@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|    AdvancedTrendEA_MT5.mq5 (with Multi-Timeframe Filter)         |
+//|    AdvancedTrendEA_MT5.mq5 (Final Corrected Version)             |
 //+------------------------------------------------------------------+
 #include <Trade\Trade.mqh>
 CTrade trade;
@@ -10,8 +10,6 @@ input int FastMA_Period = 14;
 input int SlowMA_Period = 50;
 input ENUM_MA_METHOD MA_Method = MODE_SMA;
 input int RSI_Period = 14;
-// Nivelurile RSI sunt setate implicit la 50 pentru o strategie simetrică.
-// Pentru o confirmare mai puternică a momentum-ului, se pot folosi valori asimetrice (ex: Cumpărare > 55, Vânzare < 45).
 input double RSI_Buy_Level = 50.0;
 input double RSI_Sell_Level = 50.0;
 
@@ -47,13 +45,10 @@ int OnInit()
     if(_Digits == 3 || _Digits == 5) _pipValue = _Point * 10;
     else _pipValue = _Point;
 
-    // Inițializare indicatori pentru timeframe-ul de execuție
     h_fastMA = iMA(_Symbol, Execution_Timeframe, FastMA_Period, 0, MA_Method, PRICE_CLOSE);
     h_slowMA = iMA(_Symbol, Execution_Timeframe, SlowMA_Period, 0, MA_Method, PRICE_CLOSE);
     h_RSI    = iRSI(_Symbol, Execution_Timeframe, RSI_Period, PRICE_CLOSE);
     h_ATR    = iATR(_Symbol, Execution_Timeframe, ATR_Period);
-
-    // Inițializare indicator pentru filtrul de trend
     h_trendMA = iMA(_Symbol, Trend_Timeframe, Trend_MA_Period, 0, MA_Method, PRICE_CLOSE);
 
     if(h_fastMA==INVALID_HANDLE || h_slowMA==INVALID_HANDLE || h_RSI==INVALID_HANDLE || h_ATR==INVALID_HANDLE || h_trendMA==INVALID_HANDLE)
@@ -92,7 +87,6 @@ void OnTick()
 
     if(CountOpenTrades() >= MaxOpenTrades) return;
 
-    //--- Obținerea și validarea direcției trendului principal
     double trendMA[1];
     if(CopyBuffer(h_trendMA, 0, 1, 1, trendMA) <= 0) return;
 
@@ -100,7 +94,6 @@ void OnTick()
     bool isUptrend = currentPrice > trendMA[0];
     bool isDowntrend = currentPrice < trendMA[0];
 
-    //--- Obținerea indicatorilor de pe timeframe-ul de execuție (doar ultima bară închisă)
     double fastMA[1], slowMA[1], rsi[1], atr[1];
     if(!GetExecutionIndicators(fastMA, slowMA, rsi, atr)) return;
 
@@ -111,11 +104,9 @@ void OnTick()
     double slowMA_recent = slowMA[0];
     double rsi_recent = rsi[0];
 
-    //--- Logica de semnal bazată pe STARE, filtrată de trendul principal
     bool buySignal = fastMA_recent > slowMA_recent && rsi_recent > RSI_Buy_Level;
     bool sellSignal = fastMA_recent < slowMA_recent && rsi_recent < RSI_Sell_Level;
 
-    // Doar luăm în considerare semnalele care sunt în direcția trendului principal
     if(isUptrend && buySignal) OpenPosition(ORDER_TYPE_BUY, atr[0]);
     if(isDowntrend && sellSignal) OpenPosition(ORDER_TYPE_SELL, atr[0]);
 }
@@ -140,7 +131,6 @@ void CheckForNewBar()
 //+------------------------------------------------------------------+
 bool GetExecutionIndicators(double &fastMA[], double &slowMA[], double &rsi[], double &atr[])
 {
-    // Copiem datele de pe ultima bară închisă (index 1), o singură valoare
     if(CopyBuffer(h_fastMA, 0, 1, 1, fastMA) < 1 ||
        CopyBuffer(h_slowMA, 0, 1, 1, slowMA) < 1 ||
        CopyBuffer(h_RSI, 0, 1, 1, rsi) < 1 ||
