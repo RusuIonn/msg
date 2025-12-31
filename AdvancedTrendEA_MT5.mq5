@@ -10,8 +10,10 @@ input int FastMA_Period = 14;
 input int SlowMA_Period = 50;
 input ENUM_MA_METHOD MA_Method = MODE_SMA;
 input int RSI_Period = 14;
-input double RSI_Buy_Level = 55;
-input double RSI_Sell_Level = 45;
+// Nivelurile RSI sunt setate implicit la 50 pentru o strategie simetrică.
+// Pentru o confirmare mai puternică a momentum-ului, se pot folosi valori asimetrice (ex: Cumpărare > 55, Vânzare < 45).
+input double RSI_Buy_Level = 50.0;
+input double RSI_Sell_Level = 50.0;
 
 //--- Inputuri Filtru de Trend Multi-Timeframe
 input ENUM_TIMEFRAMES Trend_Timeframe = PERIOD_H1; // Timeframe-ul pentru definirea trendului principal
@@ -257,9 +259,12 @@ int CountOpenTrades()
     int count = 0;
     for(int i = PositionsTotal() - 1; i >= 0; i--)
     {
-        if(PositionGetSymbol(i) == _Symbol && PositionGetInteger(POSITION_MAGIC) == MagicNumber)
+        if(PositionSelectByIndex(i)) // <<<<< CORECȚIE AICI: Selectăm poziția înainte de a verifica
         {
-            count++;
+            if(PositionGetString(POSITION_SYMBOL) == _Symbol && PositionGetInteger(POSITION_MAGIC) == MagicNumber)
+            {
+                count++;
+            }
         }
     }
     return count;
