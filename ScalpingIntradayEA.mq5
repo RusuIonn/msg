@@ -132,29 +132,24 @@ void CheckForNewTrade()
       return;
      }
 
-   //--- Defineste array-urile pentru a stoca datele indicatorilor
-   double arr_FastMA[3], arr_SlowMA[3], arr_RSI[2], arr_ATR[2]; // ATR size increased to 2
+   //--- Defineste array-urile optimizate pentru a stoca datele indicatorilor
+   double arr_FastMA[2], arr_SlowMA[2], arr_RSI[1], arr_ATR[1];
 
-   //--- Seteaza array-urile ca serii de timp (index 0 = bara curenta)
-   ArraySetAsSeries(arr_FastMA, true);
-   ArraySetAsSeries(arr_SlowMA, true);
-   ArraySetAsSeries(arr_RSI, true);
-   ArraySetAsSeries(arr_ATR, true);
-
-   //--- Obtine valorile indicatorilor
-   if(CopyBuffer(h_FastMA, 0, 1, 3, arr_FastMA) <= 0 || CopyBuffer(h_SlowMA, 0, 1, 3, arr_SlowMA) <= 0 ||
-      CopyBuffer(h_RSI, 0, 1, 2, arr_RSI) <= 0 || CopyBuffer(h_ATR, 0, 1, 1, arr_ATR) <= 0)
+   //--- Obtine valorile indicatorilor de pe ultimele 2 bare inchise
+   if(CopyBuffer(h_FastMA, 0, 1, 2, arr_FastMA) < 2 || CopyBuffer(h_SlowMA, 0, 1, 2, arr_SlowMA) < 2 ||
+      CopyBuffer(h_RSI, 0, 1, 1, arr_RSI) < 1 || CopyBuffer(h_ATR, 0, 1, 1, arr_ATR) < 1)
      {
       Print("Eroare la copierea datelor din bufferele indicatorilor: ", GetLastError());
       return;
      }
 
-   //--- Conditii de Crossover pentru intrare
-   // Index [0] = cea mai recenta bara inchisa; Index [1] = bara de dinainte
-   bool buy_crossover = arr_FastMA[0] > arr_SlowMA[0] && arr_FastMA[1] <= arr_SlowMA[1];
-   bool sell_crossover = arr_FastMA[0] < arr_SlowMA[0] && arr_FastMA[1] >= arr_SlowMA[1];
+   //--- Conditii de Crossover (Ordine Cronologica: index [0] = bara veche, index [1] = bara noua)
+   // Crossover de cumparare: MA rapid era sub cel lent si acum este deasupra
+   bool buy_crossover = arr_FastMA[0] <= arr_SlowMA[0] && arr_FastMA[1] > arr_SlowMA[1];
+   // Crossover de vanzare: MA rapid era deasupra celui lent si acum este dedesubt
+   bool sell_crossover = arr_FastMA[0] >= arr_SlowMA[0] && arr_FastMA[1] < arr_SlowMA[1];
 
-   //--- Semnale finale, combinate cu filtrul RSI
+   //--- Semnale finale, combinate cu filtrul RSI (RSI de pe bara de semnal)
    bool buy_signal = buy_crossover && arr_RSI[0] < RSI_Oversold;
    bool sell_signal = sell_crossover && arr_RSI[0] > RSI_Overbought;
 
