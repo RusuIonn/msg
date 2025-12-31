@@ -6,7 +6,7 @@
 #property copyright "Copyright 2023, MetaQuotes Software Corp."
 #property link      "https://www.mql5.com"
 #property version   "1.00"
-#property description "Expert Advisor pentru Scalping si Intraday bazat pe Medii Mobile, RSI si ATR."
+#property description "Expert Advisor Intraday cu functie de piramidare, bazat pe Medii Mobile, RSI si ATR."
 
 //--- Include-uri
 #include <Trade/Trade.mqh>
@@ -31,6 +31,7 @@ input double   ATR_Multiplier_TP = 4.0; // Multiplicator ATR pentru Take Profit
 
 sinput group "Managementul Tranzactiilor"
 input double   LotSize = 0.01;          // Marimea Lotului
+input int      MaxOpenTrades = 5;       // Numarul maxim de tranzactii deschise
 input ulong    MagicNumber = 12345;     // Numarul Magic al EA-ului
 input int      TrailingStop = 30;       // Pasi Trailing Stop (0 = dezactivat)
 
@@ -126,8 +127,8 @@ void CheckForNewTrade()
      }
    last_bar_time = current_bar_time;
 
-   //--- Executa tranzactiile doar daca nu exista pozitii deschise
-   if(PositionsTotal() > 0)
+   //--- Verifica daca este permis sa se deschida o noua tranzactie
+   if(CountCurrentChartPositions() >= MaxOpenTrades)
      {
       return;
      }
@@ -143,15 +144,14 @@ void CheckForNewTrade()
       return;
      }
 
-   //--- Conditii de Crossover (Ordine Cronologica: index [0] = bara veche, index [1] = bara noua)
-   // Crossover de cumparare: MA rapid era sub cel lent si acum este deasupra
-   bool buy_crossover = arr_FastMA[0] <= arr_SlowMA[0] && arr_FastMA[1] > arr_SlowMA[1];
-   // Crossover de vanzare: MA rapid era deasupra celui lent si acum este dedesubt
-   bool sell_crossover = arr_FastMA[0] >= arr_SlowMA[0] && arr_FastMA[1] < arr_SlowMA[1];
+   //--- Conditii de Stare de Trend (MA rapid vs MA lent pe ultima bara inchisa)
+   // Indicele [1] este bara cea mai recenta inchisa din cauza ordinii cronologice
+   bool is_uptrend = arr_FastMA[1] > arr_SlowMA[1];
+   bool is_downtrend = arr_FastMA[1] < arr_SlowMA[1];
 
-   //--- Semnale finale, combinate cu filtrul RSI (RSI de pe bara de semnal)
-   bool buy_signal = buy_crossover && arr_RSI[0] < RSI_Oversold;
-   bool sell_signal = sell_crossover && arr_RSI[0] > RSI_Overbought;
+   //--- Semnale finale, combinate cu filtrul RSI (de pe cea mai recenta bara inchisa)
+   bool buy_signal = is_uptrend && arr_RSI[0] < RSI_Oversold;
+   bool sell_signal = is_downtrend && arr_RSI[0] > RSI_Overbought;
 
    //--- Calculeaza valoarea ATR de pe bara semnalului
    double atr_value = arr_ATR[0];
@@ -184,6 +184,26 @@ void CheckForNewTrade()
          Print("Eroare la deschiderea tranzactiei SELL: ", trade.ResultRetcodeDescription());
         }
      }
+  }
+//+------------------------------------------------------------------+
+//| Numara pozitiile deschise de acest EA pe graficul curent.        |
+//+------------------------------------------------------------------+
+int CountCurrentChartPositions()
+  {
+   int count = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(PositionSelectByTicket(ticket))
+        {
+         if(PositionGetInteger(POSITION_MAGIC) == MagicNumber &&
+            PositionGetString(POSITION_SYMBOL) == _Symbol)
+           {
+            count++;
+           }
+        }
+     }
+   return count;
   }
 
 //+------------------------------------------------------------------+
