@@ -39,12 +39,22 @@ int h_SlowMA;
 int h_RSI;
 int h_ATR;
 
+//--- Variabile globale pentru cerintele brokerului
+int    min_stop_level = 0;
+int    price_digits = 5;
+double min_point;
+
 //--- Instanta CTrade pentru operatiuni de tranzactionare
 CTrade trade;
 
 //--- Functia de initializare a expertului
 int OnInit()
   {
+   //--- Preia cerintele brokerului pentru simbolul curent
+   min_stop_level = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   price_digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   min_point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+
    //--- Seteaza numarul magic pentru CTrade
    trade.SetExpertMagicNumber(MagicNumber);
 
@@ -147,9 +157,11 @@ void CheckForNewTrade()
    bool is_uptrend = arr_FastMA[0] > arr_SlowMA[0];
    bool is_downtrend = arr_FastMA[0] < arr_SlowMA[0];
 
-   //--- Semnale de intrare bazate pe trecerea RSI de nivelul 50
-   bool rsi_cross_above_50 = arr_RSI[0] < 50 && arr_RSI[1] >= 50;
-   bool rsi_cross_below_50 = arr_RSI[0] > 50 && arr_RSI[1] <= 50;
+   //--- Semnale de intrare bazate pe trecerea RSI de nivelul 50 (Corectat)
+   // Asteptam ca RSI sa treaca de 50 IN SUS (de la [1] la [0])
+   bool rsi_cross_above_50 = arr_RSI[1] < 50 && arr_RSI[0] >= 50;
+   // Asteptam ca RSI sa treaca de 50 IN JOS (de la [1] la [0])
+   bool rsi_cross_below_50 = arr_RSI[1] > 50 && arr_RSI[0] <= 50;
 
    //--- Semnale finale: intrare in directia trendului cand momentum-ul revine
    bool buy_signal = is_uptrend && rsi_cross_above_50;
@@ -161,8 +173,8 @@ void CheckForNewTrade()
    if(buy_signal)
      {
       double entry_price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-      double stop_loss_price = entry_price - atr_value * ATR_Multiplier_SL;
-      double take_profit_price = entry_price + atr_value * ATR_Multiplier_TP;
+      double stop_loss_price = AdjustStopLoss(entry_price - atr_value * ATR_Multiplier_SL, ORDER_TYPE_BUY);
+      double take_profit_price = AdjustTakeProfit(entry_price + atr_value * ATR_Multiplier_TP, ORDER_TYPE_BUY);
       if(trade.Buy(LotSize, _Symbol, entry_price, stop_loss_price, take_profit_price, "Buy Signal"))
         {
          Print("Tranzactie BUY deschisa: ", trade.ResultDeal(), " la pretul ", trade.ResultPrice());
@@ -175,8 +187,8 @@ void CheckForNewTrade()
    else if(sell_signal)
      {
       double entry_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-      double stop_loss_price = entry_price + atr_value * ATR_Multiplier_SL;
-      double take_profit_price = entry_price - atr_value * ATR_Multiplier_TP;
+      double stop_loss_price = AdjustStopLoss(entry_price + atr_value * ATR_Multiplier_SL, ORDER_TYPE_SELL);
+      double take_profit_price = AdjustTakeProfit(entry_price - atr_value * ATR_Multiplier_TP, ORDER_TYPE_SELL);
       if(trade.Sell(LotSize, _Symbol, entry_price, stop_loss_price, take_profit_price, "Sell Signal"))
         {
          Print("Tranzactie SELL deschisa: ", trade.ResultDeal(), " la pretul ", trade.ResultPrice());
@@ -186,6 +198,62 @@ void CheckForNewTrade()
          Print("Eroare la deschiderea tranzactiei SELL: ", trade.ResultRetcodeDescription());
         }
      }
+  }
+
+//+------------------------------------------------------------------+
+//| Functii helper pentru ajustarea preturilor                       |
+//+------------------------------------------------------------------+
+double NormalizePrice(double price)
+  {
+   return NormalizeDouble(price, price_digits);
+  }
+
+double AdjustStopLoss(double price, ENUM_ORDER_TYPE order_type)
+  {
+   double adjusted_price = NormalizePrice(price);
+   if(order_type == ORDER_TYPE_BUY)
+     {
+      double min_distance = min_stop_level * min_point;
+      double current_price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      if(adjusted_price > current_price - min_distance)
+        {
+         adjusted_price = current_price - min_distance;
+        }
+     }
+   else // ORDER_TYPE_SELL
+     {
+      double min_distance = min_stop_level * min_point;
+      double current_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      if(adjusted_price < current_price + min_distance)
+        {
+         adjusted_price = current_price + min_distance;
+        }
+     }
+   return NormalizePrice(adjusted_price);
+  }
+
+double AdjustTakeProfit(double price, ENUM_ORDER_TYPE order_type)
+  {
+   double adjusted_price = NormalizePrice(price);
+   if(order_type == ORDER_TYPE_BUY)
+     {
+      double min_distance = min_stop_level * min_point;
+      double current_price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      if(adjusted_price < current_price + min_distance)
+        {
+         adjusted_price = current_price + min_distance;
+        }
+     }
+   else // ORDER_TYPE_SELL
+     {
+      double min_distance = min_stop_level * min_point;
+      double current_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      if(adjusted_price > current_price - min_distance)
+        {
+         adjusted_price = current_price - min_distance;
+        }
+     }
+   return NormalizePrice(adjusted_price);
   }
 //+------------------------------------------------------------------+
 //| Numara pozitiile deschise de acest EA pe graficul curent.        |
