@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|    ScalpingTrendEA_MT5.mq5 (Corectat Final)                      |
+//|    ScalpingTrendEA_MT5.mq5 (Logic based on Crossover)            |
 //+------------------------------------------------------------------+
 #include <Trade\Trade.mqh>
 CTrade trade;
@@ -22,7 +22,6 @@ input double TrailingStop_Pips = 2.0;    // Distanța trailing stop-ului față 
 int handleFastMA, handleSlowMA, handleRSI;
 
 //--- Variabile globale
-bool isNewBar = false;
 double _pipValue; // Valoarea unui pip, calculată dinamic
 
 //+------------------------------------------------------------------+
@@ -76,57 +75,47 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-    //--- Logica de Trailing Stop trebuie să ruleze la fiecare tick
+    //--- Gestionare Trailing Stop pentru pozițiile deschise
     ManageTrailingStop();
 
-    //--- Verificare bară nouă pentru logica de intrare
-    CheckForNewBar();
-    if(!isNewBar)
+    // Verificăm dacă există deja o poziție deschisă de acest EA pe acest simbol
+    if(HasOpenPosition())
     {
-        return; // Ieșim dacă nu este bară nouă, logica de intrare nu se execută
+        return;
     }
 
-    //--- Obținere date indicatori (de pe bara închisă - index 1)
-    double fastMA_prev, slowMA_prev, rsi_prev;
-    if(!GetIndicatorValues(1, fastMA_prev, slowMA_prev, rsi_prev))
+    //--- Obținere date indicatori (de pe ultimele 2 bare pentru a detecta încrucișarea)
+    double fastMA[2], slowMA[2], rsi[2];
+    if(!GetIndicatorValues(0, 2, fastMA, slowMA, rsi))
     {
         return; // Nu am putut obține valorile, ieșim
     }
 
-    //--- Logica de tranzacționare
-    if(!HasOpenPosition()) // Verificăm dacă NU avem deja o poziție deschisă pentru acest simbol/magic
+    //--- Definim valorile pentru lizibilitate
+    double fastMA_current = fastMA[0];
+    double fastMA_prev = fastMA[1];
+    double slowMA_current = slowMA[0];
+    double slowMA_prev = slowMA[1];
+    double rsi_current = rsi[0];
+
+    //--- Logica de tranzacționare bazată pe încrucișare
+    // Condiție Buy (încrucișare de jos în sus)
+    bool buySignal = fastMA_prev < slowMA_prev && fastMA_current > slowMA_current && rsi_current > RSI_Buy_Level;
+
+    if(buySignal)
     {
-        // Condiție Buy
-        if(fastMA_prev > slowMA_prev && rsi_prev > RSI_Buy_Level)
-        {
-            OpenPosition(ORDER_TYPE_BUY);
-        }
-        // Condiție Sell
-        else if(fastMA_prev < slowMA_prev && rsi_prev < RSI_Sell_Level)
-        {
-            OpenPosition(ORDER_TYPE_SELL);
-        }
+        OpenPosition(ORDER_TYPE_BUY);
+    }
+
+    // Condiție Sell (încrucișare de sus în jos)
+    bool sellSignal = fastMA_prev > slowMA_prev && fastMA_current < slowMA_current && rsi_current < RSI_Sell_Level;
+
+    if(sellSignal)
+    {
+        OpenPosition(ORDER_TYPE_SELL);
     }
 }
 
-//+------------------------------------------------------------------+
-//| Verifică dacă a apărut o bară nouă                               |
-//+------------------------------------------------------------------+
-void CheckForNewBar()
-{
-    static datetime lastBarTime = 0;
-    datetime currentBarTime = (datetime)SeriesInfoInteger(_Symbol, PERIOD_CURRENT, SERIES_LASTBAR_DATE);
-
-    if(lastBarTime < currentBarTime)
-    {
-        isNewBar = true;
-        lastBarTime = currentBarTime;
-    }
-    else
-    {
-        isNewBar = false;
-    }
-}
 
 //+------------------------------------------------------------------+
 //| Verifică dacă există o poziție deschisă de acest EA pe simbolul curent |
@@ -135,13 +124,9 @@ bool HasOpenPosition()
 {
     for(int i = PositionsTotal() - 1; i >= 0; i--)
     {
-        ulong ticket = PositionGetTicket(i);
-        if(PositionSelectByTicket(ticket)) // Selectăm poziția pentru a-i putea citi proprietățile
+        if(PositionGetSymbol(i) == _Symbol && PositionGetInteger(POSITION_MAGIC) == MagicNumber)
         {
-            if(PositionGetString(POSITION_SYMBOL) == _Symbol && PositionGetInteger(POSITION_MAGIC) == MagicNumber)
-            {
-                return true; // Am găsit o poziție care corespunde
-            }
+            return true; // Am găsit o poziție care corespunde
         }
     }
     return false; // Nu am găsit nicio poziție care să corespundă
@@ -149,23 +134,21 @@ bool HasOpenPosition()
 
 
 //+------------------------------------------------------------------+
-//| Obține valorile indicatorilor pentru o anumită bară              |
+//| Obține valorile indicatorilor pentru un anumit număr de bare     |
 //+------------------------------------------------------------------+
-bool GetIndicatorValues(int barIndex, double &fastMA, double &slowMA, double &rsi)
+bool GetIndicatorValues(int startIndex, int count, double &fastMA[], double &slowMA[], double &rsi[])
 {
-    double tempFastMA[1], tempSlowMA[1], tempRSI[1];
-
-    if(CopyBuffer(handleFastMA, 0, barIndex, 1, tempFastMA) <= 0 ||
-       CopyBuffer(handleSlowMA, 0, barIndex, 1, tempSlowMA) <= 0 ||
-       CopyBuffer(handleRSI, 0, barIndex, 1, tempRSI) <= 0)
+    if(CopyBuffer(handleFastMA, 0, startIndex, count, fastMA) < count ||
+       CopyBuffer(handleSlowMA, 0, startIndex, count, slowMA) < count ||
+       CopyBuffer(handleRSI, 0, startIndex, count, rsi) < count)
     {
         Print("Eroare la copierea datelor din indicatori!");
         return false;
     }
-
-    fastMA = tempFastMA[0];
-    slowMA = tempSlowMA[0];
-    rsi = tempRSI[0];
+    // Datele vin în ordine cronologică inversă, le inversăm pentru o logică mai intuitivă
+    ArraySetAsSeries(fastMA, true);
+    ArraySetAsSeries(slowMA, true);
+    ArraySetAsSeries(rsi, true);
     return true;
 }
 
@@ -264,8 +247,6 @@ void ManageTrailingStop()
                         }
                     }
                 }
-                // Deoarece EA-ul deschide o singură poziție pe simbol, putem ieși din buclă după ce am găsit-o și am procesat-o
-                break;
             }
         }
     }
