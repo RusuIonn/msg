@@ -20,8 +20,6 @@ input ENUM_APPLIED_PRICE MA_Applied_Price = PRICE_CLOSE; // Pretul aplicat
 
 sinput group "Parametri RSI"
 input int      RSI_Period = 14;         // Perioada RSI
-input double   RSI_Overbought = 70.0;   // Nivel Supracumparare RSI
-input double   RSI_Oversold = 30.0;     // Nivel Supravanzare RSI
 input ENUM_APPLIED_PRICE RSI_Applied_Price = PRICE_CLOSE; // Pretul aplicat
 
 sinput group "Managementul Riscului (ATR)"
@@ -31,7 +29,7 @@ input double   ATR_Multiplier_TP = 4.0; // Multiplicator ATR pentru Take Profit
 
 sinput group "Managementul Tranzactiilor"
 input double   LotSize = 0.01;          // Marimea Lotului
-input int      MaxOpenTrades = 5;       // Numarul maxim de tranzactii deschise
+input int      MaxOpenTrades = 1;       // Numarul maxim de tranzactii (1 = fara piramidare)
 input ulong    MagicNumber = 12345;     // Numarul Magic al EA-ului
 input int      TrailingStop = 30;       // Pasi Trailing Stop (0 = dezactivat)
 
@@ -134,11 +132,11 @@ void CheckForNewTrade()
      }
 
    //--- Defineste array-urile optimizate pentru a stoca datele indicatorilor
-   double arr_FastMA[2], arr_SlowMA[2], arr_RSI[1], arr_ATR[1];
+   double arr_FastMA[2], arr_SlowMA[2], arr_RSI[2], arr_ATR[1]; // RSI size increased to 2
 
    //--- Obtine valorile indicatorilor de pe ultimele 2 bare inchise
    if(CopyBuffer(h_FastMA, 0, 1, 2, arr_FastMA) < 2 || CopyBuffer(h_SlowMA, 0, 1, 2, arr_SlowMA) < 2 ||
-      CopyBuffer(h_RSI, 0, 1, 1, arr_RSI) < 1 || CopyBuffer(h_ATR, 0, 1, 1, arr_ATR) < 1)
+      CopyBuffer(h_RSI, 0, 1, 2, arr_RSI) < 2 || CopyBuffer(h_ATR, 0, 1, 1, arr_ATR) < 1)
      {
       Print("Eroare la copierea datelor din bufferele indicatorilor: ", GetLastError());
       return;
@@ -149,11 +147,13 @@ void CheckForNewTrade()
    bool is_uptrend = arr_FastMA[0] > arr_SlowMA[0];
    bool is_downtrend = arr_FastMA[0] < arr_SlowMA[0];
 
-   //--- Semnale finale, combinate cu filtrul RSI (logica relaxata pentru trend-following)
-   // Cumpara daca suntem in uptrend si piata nu este inca supracumparata
-   bool buy_signal = is_uptrend && arr_RSI[0] < RSI_Overbought;
-   // Vinde daca suntem in downtrend si piata nu este inca supravanduta
-   bool sell_signal = is_downtrend && arr_RSI[0] > RSI_Oversold;
+   //--- Semnale de intrare bazate pe trecerea RSI de nivelul 50
+   bool rsi_cross_above_50 = arr_RSI[0] < 50 && arr_RSI[1] >= 50;
+   bool rsi_cross_below_50 = arr_RSI[0] > 50 && arr_RSI[1] <= 50;
+
+   //--- Semnale finale: intrare in directia trendului cand momentum-ul revine
+   bool buy_signal = is_uptrend && rsi_cross_above_50;
+   bool sell_signal = is_downtrend && rsi_cross_below_50;
 
    //--- Calculeaza valoarea ATR de pe bara semnalului
    double atr_value = arr_ATR[0];
