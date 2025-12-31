@@ -118,7 +118,7 @@ void CheckForNewTrade()
   {
    //--- Functie helper pentru verificarea unei bare noi
    static datetime last_bar_time = 0;
-   datetime current_bar_time = (datetime)SeriesInfoInteger(_Symbol, _Period, SERIES_LAST_BAR_TIME);
+   datetime current_bar_time = iTime(_Symbol, _Period, 0);
 
    if(current_bar_time == last_bar_time)
      {
@@ -164,6 +164,10 @@ void CheckForNewTrade()
         {
          Print("Tranzactie BUY deschisa: ", trade.ResultDeal(), " la pretul ", trade.ResultPrice());
         }
+      else
+        {
+         Print("Eroare la deschiderea tranzactiei BUY: ", trade.ResultRetcodeDescription());
+        }
      }
    else if(sell_signal)
      {
@@ -173,6 +177,10 @@ void CheckForNewTrade()
       if(trade.Sell(LotSize, _Symbol, entry_price, stop_loss_price, take_profit_price, "Sell Signal"))
         {
          Print("Tranzactie SELL deschisa: ", trade.ResultDeal(), " la pretul ", trade.ResultPrice());
+        }
+      else
+        {
+         Print("Eroare la deschiderea tranzactiei SELL: ", trade.ResultRetcodeDescription());
         }
      }
   }
