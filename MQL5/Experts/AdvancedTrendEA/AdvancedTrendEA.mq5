@@ -23,7 +23,7 @@ input double NeutralZone_ATR_Multiplier = 1.0; // Multiplicator ATR pentru zona 
 //--- Inputuri Managementul Banilor și Riscului
 input ulong MagicNumber = 54321;         // Număr Magic unic pentru acest EA
 input double RiskPercent = 1.0;           // Procentul din cont riscat pe tranzacție
-input int MaxOpenTrades = 5;               // Numărul maxim de tranzacții deschise simultan
+input int MaxOpenTrades = 5;               // Numărul maxim de tranzacții deschise simultan pe fiecare direcție (Buy/Sell)
 input int ATR_Period = 14;                 // Perioada pentru ATR (pe timeframe-ul de execuție)
 input double ATR_StopLoss_Multiplier = 2.0; // Multiplicator ATR pentru Stop Loss
 input double ATR_TakeProfit_Multiplier = 4.0;// Multiplicator ATR pentru Take Profit
@@ -93,10 +93,8 @@ void OnTick()
     CheckForNewBar();
     if(!isNewBar) return;
 
-    int openTrades = CountOpenTrades();
-    if (isNewBar) Print("Verificare MaxOpenTrades: Curente = ", openTrades, ", Limită = ", MaxOpenTrades);
-
-    if(openTrades >= MaxOpenTrades) return;
+    // Logica de numărare a tranzacțiilor a fost mutată direct în condițiile de semnal
+    // pentru a permite piramidarea pe fiecare direcție în parte.
 
     //--- Obținerea și validarea direcției trendului principal
     double trendMA[1], trendATR[1];
@@ -130,8 +128,14 @@ void OnTick()
     bool sellSignal = fastMA_recent < slowMA_recent && rsi_recent < RSI_Sell_Level;
 
     // Doar luăm în considerare semnalele care sunt în direcția trendului principal
-    if(isUptrend && buySignal) OpenPosition(ORDER_TYPE_BUY, atr[0]);
-    if(isDowntrend && sellSignal) OpenPosition(ORDER_TYPE_SELL, atr[0]);
+    if(isUptrend && buySignal && CountOpenTrades(ORDER_TYPE_BUY) < MaxOpenTrades)
+    {
+        OpenPosition(ORDER_TYPE_BUY, atr[0]);
+    }
+    if(isDowntrend && sellSignal && CountOpenTrades(ORDER_TYPE_SELL) < MaxOpenTrades)
+    {
+        OpenPosition(ORDER_TYPE_SELL, atr[0]);
+    }
 }
 
 //+------------------------------------------------------------------+
@@ -274,9 +278,9 @@ void ManageTrailingStop()
 }
 
 //+------------------------------------------------------------------+
-//| Numără tranzacțiile deschise de acest EA                         |
+//| Numără tranzacțiile deschise de acest EA pentru o anumită direcție |
 //+------------------------------------------------------------------+
-int CountOpenTrades()
+int CountOpenTrades(ENUM_ORDER_TYPE direction)
 {
     int count = 0;
     for(int i = PositionsTotal() - 1; i >= 0; i--)
@@ -286,7 +290,13 @@ int CountOpenTrades()
         {
             if(PositionGetString(POSITION_SYMBOL) == _Symbol && PositionGetInteger(POSITION_MAGIC) == MagicNumber)
             {
-                count++;
+                // Verifică dacă direcția poziției corespunde cu cea cerută
+                ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+                if((direction == ORDER_TYPE_BUY && posType == POSITION_TYPE_BUY) ||
+                   (direction == ORDER_TYPE_SELL && posType == POSITION_TYPE_SELL))
+                {
+                    count++;
+                }
             }
         }
     }
