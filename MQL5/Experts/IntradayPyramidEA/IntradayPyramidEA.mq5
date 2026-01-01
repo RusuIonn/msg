@@ -100,9 +100,9 @@ void CheckForNewTrade()
 
    //--- Copy the indicator values from the last closed bars
    // CopyBuffer copies data chronologically by default (index 0 is oldest)
-   if(CopyBuffer(h_fast_ma, 1, 1, fast_ma_arr) < 1 ||
-      CopyBuffer(h_slow_ma, 1, 1, slow_ma_arr) < 1 ||
-      CopyBuffer(h_rsi, 1, 2, rsi_arr) < 2)
+   if(CopyBuffer(h_fast_ma, 0, 1, 1, fast_ma_arr) < 1 ||
+      CopyBuffer(h_slow_ma, 0, 1, 1, slow_ma_arr) < 1 ||
+      CopyBuffer(h_rsi, 0, 1, 2, rsi_arr) < 2)
      {
       Print("Error copying indicator buffers");
       return;
@@ -218,7 +218,7 @@ void OpenNewTrade(ENUM_ORDER_TYPE order_type)
      }
    else
      {
-      Print("Error opening trade. Code: ", trade.ResultRetcode(), ". Message: ", trade.ResultRetcodeDescription());
+      Print("Error opening trade. Code: ", trade.ResultRetcode(), ". Message: ", trade.ResultComment());
      }
   }
 //+------------------------------------------------------------------+
