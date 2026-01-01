@@ -18,6 +18,7 @@ input double RSI_Sell_Level = 50.0;
 //--- Inputuri Filtru de Trend Multi-Timeframe
 input ENUM_TIMEFRAMES Trend_Timeframe = PERIOD_H1; // Timeframe-ul pentru definirea trendului principal
 input int Trend_MA_Period = 200;              // Perioada mediei mobile pentru trend
+input double NeutralZone_ATR_Multiplier = 1.0; // Multiplicator ATR pentru zona neutră a trendului
 
 //--- Inputuri Managementul Banilor și Riscului
 input ulong MagicNumber = 54321;         // Număr Magic unic pentru acest EA
@@ -33,7 +34,7 @@ input double TrailingStart_Pips = 25.0;  // Când să înceapă trailing-ul, în
 input double TrailingStop_Pips = 15.0;   // Distanța trailing stop-ului față de preț, în pips
 
 //--- Handle indicatori
-int h_fastMA, h_slowMA, h_RSI, h_ATR, h_trendMA;
+int h_fastMA, h_slowMA, h_RSI, h_ATR, h_trendMA, h_trendATR;
 
 //--- Variabile globale
 double _pipValue;   // Valoarea unui pip, calculată dinamic
@@ -53,10 +54,11 @@ int OnInit()
     h_RSI    = iRSI(_Symbol, Execution_Timeframe, RSI_Period, PRICE_CLOSE);
     h_ATR    = iATR(_Symbol, Execution_Timeframe, ATR_Period);
 
-    // Inițializare indicator pentru filtrul de trend
+    // Inițializare indicatori pentru filtrul de trend
     h_trendMA = iMA(_Symbol, Trend_Timeframe, Trend_MA_Period, 0, MA_Method, PRICE_CLOSE);
+    h_trendATR = iATR(_Symbol, Trend_Timeframe, ATR_Period);
 
-    if(h_fastMA==INVALID_HANDLE || h_slowMA==INVALID_HANDLE || h_RSI==INVALID_HANDLE || h_ATR==INVALID_HANDLE || h_trendMA==INVALID_HANDLE)
+    if(h_fastMA==INVALID_HANDLE || h_slowMA==INVALID_HANDLE || h_RSI==INVALID_HANDLE || h_ATR==INVALID_HANDLE || h_trendMA==INVALID_HANDLE || h_trendATR==INVALID_HANDLE)
     {
         Print("Eroare la crearea unuia sau mai multor indicatori!");
         return(INIT_FAILED);
@@ -77,6 +79,7 @@ void OnDeinit(const int reason)
     IndicatorRelease(h_RSI);
     IndicatorRelease(h_ATR);
     IndicatorRelease(h_trendMA);
+    IndicatorRelease(h_trendATR);
     Print("EA a fost oprit. Resursele au fost eliberate.");
 }
 
@@ -93,12 +96,20 @@ void OnTick()
     if(CountOpenTrades() >= MaxOpenTrades) return;
 
     //--- Obținerea și validarea direcției trendului principal
-    double trendMA[1];
-    if(CopyBuffer(h_trendMA, 0, 1, 1, trendMA) <= 0) return;
+    double trendMA[1], trendATR[1];
+    if(CopyBuffer(h_trendMA, 0, 1, 1, trendMA) <= 0 || CopyBuffer(h_trendATR, 0, 1, 1, trendATR) <= 0)
+    {
+        Print("Eroare la copierea datelor din indicatorii de trend!");
+        return;
+    }
+
+    double neutralZoneDistance = trendATR[0] * NeutralZone_ATR_Multiplier;
+    double upperBand = trendMA[0] + neutralZoneDistance;
+    double lowerBand = trendMA[0] - neutralZoneDistance;
 
     double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    bool isUptrend = currentPrice > trendMA[0];
-    bool isDowntrend = currentPrice < trendMA[0];
+    bool isUptrend = currentPrice > upperBand;
+    bool isDowntrend = currentPrice < lowerBand;
 
     //--- Obținerea indicatorilor de pe timeframe-ul de execuție (doar ultima bară închisă)
     double fastMA[1], slowMA[1], rsi[1], atr[1];
