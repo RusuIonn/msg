@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2023, Your Name/Company"
 #property link      "https://www.yourwebsite.com"
-#property version   "1.30" // Enhanced with volatility, R/R filters and opposite signal exit
+#property version   "1.31" // Bugfix for PositionClose and enhanced logging
 
 //--- Input Parameters
 //--- These parameters can be adjusted from the MetaTrader 5 terminal to optimize the EA's performance.
@@ -108,7 +108,7 @@ int OnInit()
       //--- Write header if the file is new/empty to structure the log.
       if(FileSize(fileHandle) == 0)
         {
-         FileWriteString(fileHandle, "Timestamp,Symbol,OrderType,Price,LotSize,StopLoss,TakeProfit,Reason\n");
+         FileWriteString(fileHandle, "Timestamp,Symbol,OrderType,Price,LotSize,StopLoss,TakeProfit,Profit,Reason\n");
         }
       FileClose(fileHandle);
      }
@@ -270,29 +270,45 @@ bool CheckSellCondition()
 }
 
 //+------------------------------------------------------------------+
-//| Log Trade Details to a CSV file                                  |
-//| Records the details of each executed trade for later analysis.   |
+//| Log Trade Open Details to a CSV file                             |
 //+------------------------------------------------------------------+
-void LogTradeDetails(string orderType, double price, double lotSize, double sl, double tp, string reason)
+void LogTradeOpen(string orderType, double price, double lotSize, double sl, double tp, string reason)
 {
    string fileName = "TradeLog_" + _Symbol + ".csv";
    int fileHandle = FileOpen(fileName, FILE_READ|FILE_WRITE|FILE_CSV, ",");
 
    if(fileHandle != INVALID_HANDLE)
      {
-      //--- Move to the end of the file to append new data.
       FileSeek(fileHandle, 0, SEEK_END);
-
-      //--- Write the trade details in CSV format.
       FileWriteString(fileHandle, TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + ",");
       FileWriteString(fileHandle, _Symbol + ",");
       FileWriteString(fileHandle, orderType + ",");
       FileWriteString(fileHandle, DoubleToString(price, _Digits) + ",");
       FileWriteString(fileHandle, DoubleToString(lotSize, 2) + ",");
       FileWriteString(fileHandle, DoubleToString(sl, _Digits) + ",");
-      FileWriteString(fileHandle, DoubleToString(tp, _Digits) + ",");
+      FileWriteString(fileHandle, DoubleToString(tp, _Digits) + ",,"); // Empty Profit column
       FileWriteString(fileHandle, reason + "\n");
+      FileClose(fileHandle);
+     }
+}
 
+//+------------------------------------------------------------------+
+//| Log Trade Close Details to a CSV file                            |
+//+------------------------------------------------------------------+
+void LogTradeClose(double price, double profit, string reason)
+{
+   string fileName = "TradeLog_" + _Symbol + ".csv";
+   int fileHandle = FileOpen(fileName, FILE_READ|FILE_WRITE|FILE_CSV, ",");
+
+   if(fileHandle != INVALID_HANDLE)
+     {
+      FileSeek(fileHandle, 0, SEEK_END);
+      FileWriteString(fileHandle, TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + ",");
+      FileWriteString(fileHandle, _Symbol + ",");
+      FileWriteString(fileHandle, "CLOSE,");
+      FileWriteString(fileHandle, DoubleToString(price, _Digits) + ",,,,"); // Empty SL, TP columns
+      FileWriteString(fileHandle, DoubleToString(profit, 2) + ",");
+      FileWriteString(fileHandle, reason + "\n");
       FileClose(fileHandle);
      }
 }
@@ -361,14 +377,18 @@ void ManageExitOnOppositeSignal()
    if(PositionSelect(_Symbol))
      {
       long positionType = PositionGetInteger(POSITION_TYPE);
+      string reason = "";
 
       //--- If it's a BUY position, check for a SELL signal to close it.
       if(positionType == POSITION_TYPE_BUY)
         {
          if(CheckSellCondition())
            {
-            // Close the buy position and log the reason.
-            trade.PositionClose(_Symbol, "Closed on opposite (sell) signal");
+            reason = "Closed on opposite (sell) signal";
+            if(trade.PositionClose(_Symbol))
+              {
+               LogTradeClose(trade.ResultPrice(), trade.ResultProfit(), reason);
+              }
            }
         }
       //--- If it's a SELL position, check for a BUY signal to close it.
@@ -376,8 +396,11 @@ void ManageExitOnOppositeSignal()
         {
          if(CheckBuyCondition())
            {
-            // Close the sell position and log the reason.
-            trade.PositionClose(_Symbol, "Closed on opposite (buy) signal");
+            reason = "Closed on opposite (buy) signal";
+            if(trade.PositionClose(_Symbol))
+              {
+               LogTradeClose(trade.ResultPrice(), trade.ResultProfit(), reason);
+              }
            }
         }
      }
@@ -431,7 +454,7 @@ void OnTick()
 
          if(trade.Buy(lotSize, _Symbol, 0, stopLossPrice, takeProfitPrice, "Buy Signal: Trend & Momentum"))
            {
-            LogTradeDetails("BUY", trade.ResultPrice(), lotSize, stopLossPrice, takeProfitPrice, reason);
+            LogTradeOpen("BUY", trade.ResultPrice(), lotSize, stopLossPrice, takeProfitPrice, reason);
            }
         }
      }
@@ -448,7 +471,7 @@ void OnTick()
 
          if(trade.Sell(lotSize, _Symbol, 0, stopLossPrice, takeProfitPrice, "Sell Signal: Trend & Momentum"))
            {
-            LogTradeDetails("SELL", trade.ResultPrice(), lotSize, stopLossPrice, takeProfitPrice, reason);
+            LogTradeOpen("SELL", trade.ResultPrice(), lotSize, stopLossPrice, takeProfitPrice, reason);
            }
         }
      }
