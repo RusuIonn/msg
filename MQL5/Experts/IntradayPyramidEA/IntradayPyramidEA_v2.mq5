@@ -1,12 +1,12 @@
 //+------------------------------------------------------------------+
-//|                                         IntradayPyramidEA.mq5|
-//|                        Copyright 2023, Your Name/Company Name|
-//|                                             https://www.mql5.com|
+//|                                     IntradayPyramidEA_v2.mq5     |
+//|                        Copyright 2023, Your Name/Company Name    |
+//|                                             https://www.mql5.com |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2023, Your Name/Company Name"
 #property link      "https://www.mql5.com"
-#property version   "1.00"
-#property description "EA intraday ce foloseste MA, RSI si ATR pentru a tranzactiona in directia trendului."
+#property version   "2.00"
+#property description "EA intraday ce foloseste MA, RSI si ATR pentru a tranzactiona in directia trendului. v2"
 
 #include <Trade/Trade.mqh>
 
@@ -24,7 +24,7 @@ input double    TP_ATR_Mult  = 4.0;             // Multiplicator ATR pentru Take
 input int       MaxOpenTrades= 5;               // Numar maxim de tranzactii deschise
 
 input group "EA Identification"
-input long      MagicNumber  = 12345;           // Magic Number
+input long      MagicNumber  = 123456;          // Magic Number (updated)
 
 //--- Global variables
 CTrade trade;
@@ -204,11 +204,11 @@ void OpenNewTrade(ENUM_ORDER_TYPE order_type)
    bool result = false;
    if(order_type == ORDER_TYPE_BUY)
      {
-      result = trade.Buy(LotSize, _Symbol, ask_price, sl_price, tp_price, "IntradayPyramidEA Buy");
+      result = trade.Buy(LotSize, _Symbol, ask_price, sl_price, tp_price, "IntradayPyramidEA Buy v2");
      }
    else if(order_type == ORDER_TYPE_SELL)
      {
-      result = trade.Sell(LotSize, _Symbol, bid_price, sl_price, tp_price, "IntradayPyramidEA Sell");
+      result = trade.Sell(LotSize, _Symbol, bid_price, sl_price, tp_price, "IntradayPyramidEA Sell v2");
      }
 
    //--- Check result
