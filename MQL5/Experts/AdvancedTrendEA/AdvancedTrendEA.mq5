@@ -13,20 +13,19 @@ input int RSI_Period = 14;
 // Nivelurile RSI sunt setate implicit la 50 pentru o strategie simetrică.
 // Pentru o confirmare mai puternică a momentum-ului, se pot folosi valori asimetrice (ex: Cumpărare > 55, Vânzare < 45).
 input double RSI_Buy_Level = 50.0;
-input double RSI_Sell_Level = 50.0;
+input double RSI_Sell_Level = 45.0;
 
 //--- Inputuri Filtru de Trend Multi-Timeframe
 input ENUM_TIMEFRAMES Trend_Timeframe = PERIOD_H1; // Timeframe-ul pentru definirea trendului principal
 input int Trend_MA_Period = 200;              // Perioada mediei mobile pentru trend
-input double NeutralZone_ATR_Multiplier = 1.0; // Multiplicator ATR pentru zona neutră a trendului
 
 //--- Inputuri Managementul Banilor și Riscului
 input ulong MagicNumber = 54321;         // Număr Magic unic pentru acest EA
 input double RiskPercent = 1.0;           // Procentul din cont riscat pe tranzacție
-input int MaxOpenTrades = 5;               // Numărul maxim de tranzacții deschise simultan pe fiecare direcție (Buy/Sell)
+input int MaxOpenTrades = 2;               // Numărul maxim total de tranzacții (Notă: Logica curentă permite max 1 Buy și 1 Sell)
 input int ATR_Period = 14;                 // Perioada pentru ATR (pe timeframe-ul de execuție)
-input double ATR_StopLoss_Multiplier = 2.0; // Multiplicator ATR pentru Stop Loss
-input double ATR_TakeProfit_Multiplier = 4.0;// Multiplicator ATR pentru Take Profit
+input double ATR_StopLoss_Multiplier = 50.0; // Multiplicator ATR pentru Stop Loss
+input double ATR_TakeProfit_Multiplier = 5.0;// Multiplicator ATR pentru Take Profit
 input double ATR_MinVolatility_Pips = 5.0; // Volatilitate minimă (ATR în pips) pentru a tranzacționa
 
 //--- Inputuri Trailing Stop
@@ -34,7 +33,7 @@ input double TrailingStart_Pips = 25.0;  // Când să înceapă trailing-ul, în
 input double TrailingStop_Pips = 15.0;   // Distanța trailing stop-ului față de preț, în pips
 
 //--- Handle indicatori
-int h_fastMA, h_slowMA, h_RSI, h_ATR, h_trendMA, h_trendATR;
+int h_fastMA, h_slowMA, h_RSI, h_ATR, h_trendMA;
 
 //--- Variabile globale
 double _pipValue;   // Valoarea unui pip, calculată dinamic
@@ -54,11 +53,10 @@ int OnInit()
     h_RSI    = iRSI(_Symbol, Execution_Timeframe, RSI_Period, PRICE_CLOSE);
     h_ATR    = iATR(_Symbol, Execution_Timeframe, ATR_Period);
 
-    // Inițializare indicatori pentru filtrul de trend
+    // Inițializare indicator pentru filtrul de trend
     h_trendMA = iMA(_Symbol, Trend_Timeframe, Trend_MA_Period, 0, MA_Method, PRICE_CLOSE);
-    h_trendATR = iATR(_Symbol, Trend_Timeframe, ATR_Period);
 
-    if(h_fastMA==INVALID_HANDLE || h_slowMA==INVALID_HANDLE || h_RSI==INVALID_HANDLE || h_ATR==INVALID_HANDLE || h_trendMA==INVALID_HANDLE || h_trendATR==INVALID_HANDLE)
+    if(h_fastMA==INVALID_HANDLE || h_slowMA==INVALID_HANDLE || h_RSI==INVALID_HANDLE || h_ATR==INVALID_HANDLE || h_trendMA==INVALID_HANDLE)
     {
         Print("Eroare la crearea unuia sau mai multor indicatori!");
         return(INIT_FAILED);
@@ -79,7 +77,6 @@ void OnDeinit(const int reason)
     IndicatorRelease(h_RSI);
     IndicatorRelease(h_ATR);
     IndicatorRelease(h_trendMA);
-    IndicatorRelease(h_trendATR);
     Print("EA a fost oprit. Resursele au fost eliberate.");
 }
 
@@ -93,24 +90,18 @@ void OnTick()
     CheckForNewBar();
     if(!isNewBar) return;
 
-    // Logica de numărare a tranzacțiilor a fost mutată direct în condițiile de semnal
-    // pentru a permite piramidarea pe fiecare direcție în parte.
+    int buyPositions = CountOpenTrades(ORDER_TYPE_BUY);
+    int sellPositions = CountOpenTrades(ORDER_TYPE_SELL);
+
+    if((buyPositions + sellPositions) >= MaxOpenTrades) return;
 
     //--- Obținerea și validarea direcției trendului principal
-    double trendMA[1], trendATR[1];
-    if(CopyBuffer(h_trendMA, 0, 1, 1, trendMA) <= 0 || CopyBuffer(h_trendATR, 0, 1, 1, trendATR) <= 0)
-    {
-        Print("Eroare la copierea datelor din indicatorii de trend!");
-        return;
-    }
-
-    double neutralZoneDistance = trendATR[0] * NeutralZone_ATR_Multiplier;
-    double upperBand = trendMA[0] + neutralZoneDistance;
-    double lowerBand = trendMA[0] - neutralZoneDistance;
+    double trendMA[1];
+    if(CopyBuffer(h_trendMA, 0, 1, 1, trendMA) <= 0) return;
 
     double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    bool isUptrend = currentPrice > upperBand;
-    bool isDowntrend = currentPrice < lowerBand;
+    bool isUptrend = currentPrice > trendMA[0];
+    bool isDowntrend = currentPrice < trendMA[0];
 
     //--- Obținerea indicatorilor de pe timeframe-ul de execuție (doar ultima bară închisă)
     double fastMA[1], slowMA[1], rsi[1], atr[1];
@@ -128,11 +119,15 @@ void OnTick()
     bool sellSignal = fastMA_recent < slowMA_recent && rsi_recent < RSI_Sell_Level;
 
     // Doar luăm în considerare semnalele care sunt în direcția trendului principal
-    if(isUptrend && buySignal && CountOpenTrades(ORDER_TYPE_BUY) < MaxOpenTrades)
+
+    // Condiție pentru Cumpărare: semnal de cumpărare și nicio altă poziție de cumpărare deschisă
+    if(isUptrend && buySignal && buyPositions == 0)
     {
         OpenPosition(ORDER_TYPE_BUY, atr[0]);
     }
-    if(isDowntrend && sellSignal && CountOpenTrades(ORDER_TYPE_SELL) < MaxOpenTrades)
+
+    // Condiție pentru Vânzare: semnal de vânzare și nicio altă poziție de vânzare deschisă
+    if(isDowntrend && sellSignal && sellPositions == 0)
     {
         OpenPosition(ORDER_TYPE_SELL, atr[0]);
     }
@@ -203,14 +198,6 @@ void OpenPosition(ENUM_ORDER_TYPE orderType, double atrValue)
     double price, sl, tp;
     double sl_distance = atrValue * ATR_StopLoss_Multiplier;
     double tp_distance = atrValue * ATR_TakeProfit_Multiplier;
-
-    // Corecție pentru a respecta nivelul minim de stop al brokerului
-    double min_stop_level_distance = (double)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * _Point;
-    if (sl_distance < min_stop_level_distance)
-    {
-        Print("Atenție: SL calculat (", sl_distance, ") este mai mic decât minimul brokerului (", min_stop_level_distance, "). Se ajustează.");
-        sl_distance = min_stop_level_distance;
-    }
 
     double lotSize = CalculateLotSize(sl_distance);
     if(lotSize <= 0)
