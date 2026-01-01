@@ -93,7 +93,10 @@ void OnTick()
     CheckForNewBar();
     if(!isNewBar) return;
 
-    if(CountOpenTrades() >= MaxOpenTrades) return;
+    int openTrades = CountOpenTrades();
+    if (isNewBar) Print("Verificare MaxOpenTrades: Curente = ", openTrades, ", Limită = ", MaxOpenTrades);
+
+    if(openTrades >= MaxOpenTrades) return;
 
     //--- Obținerea și validarea direcției trendului principal
     double trendMA[1], trendATR[1];
@@ -196,6 +199,14 @@ void OpenPosition(ENUM_ORDER_TYPE orderType, double atrValue)
     double price, sl, tp;
     double sl_distance = atrValue * ATR_StopLoss_Multiplier;
     double tp_distance = atrValue * ATR_TakeProfit_Multiplier;
+
+    // Corecție pentru a respecta nivelul minim de stop al brokerului
+    double min_stop_level_distance = (double)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * _Point;
+    if (sl_distance < min_stop_level_distance)
+    {
+        Print("Atenție: SL calculat (", sl_distance, ") este mai mic decât minimul brokerului (", min_stop_level_distance, "). Se ajustează.");
+        sl_distance = min_stop_level_distance;
+    }
 
     double lotSize = CalculateLotSize(sl_distance);
     if(lotSize <= 0)
