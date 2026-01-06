@@ -1,0 +1,395 @@
+//+------------------------------------------------------------------+
+//|                                          IntradayPyramidEA.mq5 |
+//|                      Copyright 2023, MetaQuotes Software Corp. |
+//|                                             https://www.mql5.com |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2023, MetaQuotes Software Corp."
+#property link      "https://www.mql5.com"
+#property version   "1.00"
+#property description "Expert Advisor Intraday cu functie de piramidare, bazat pe Medii Mobile, RSI si ATR."
+
+//--- Include-uri
+#include <Trade/Trade.mqh>
+
+//--- Parametri de intrare (Inputs)
+sinput group "Parametri Medii Mobile"
+input int      FastMA_Period = 10;      // Perioada Mediei Mobile Rapide
+input int      SlowMA_Period = 21;      // Perioada Mediei Mobile Lente
+input ENUM_MA_METHOD MA_Method = MODE_EMA;  // Metoda de calcul a Mediei Mobile
+input ENUM_APPLIED_PRICE MA_Applied_Price = PRICE_CLOSE; // Pretul aplicat
+
+sinput group "Parametri RSI"
+input int      RSI_Period = 14;         // Perioada RSI
+input ENUM_APPLIED_PRICE RSI_Applied_Price = PRICE_CLOSE; // Pretul aplicat
+
+sinput group "Managementul Riscului (ATR)"
+input int      ATR_Period = 14;         // Perioada ATR
+input double   ATR_Multiplier_SL = 2.0; // Multiplicator ATR pentru Stop Loss
+input double   ATR_Multiplier_TP = 4.0; // Multiplicator ATR pentru Take Profit
+
+sinput group "Managementul Tranzactiilor"
+input double   LotSize = 0.01;          // Marimea Lotului
+input int      MaxOpenTrades = 1;       // Numarul maxim de tranzactii (1 = fara piramidare)
+input ulong    MagicNumber = 12345;     // Numarul Magic al EA-ului
+input int      TrailingStop = 30;       // Pasi Trailing Stop (0 = dezactivat)
+
+sinput group "Filtre de Timp"
+input bool     EnableTimeFilter = true; // Activeaza/Dezactiveaza filtrul de tranzactionare pe ore
+input int      TradingHourStart = 9;    // Ora de incepere a tranzactionarii (ora serverului)
+input int      TradingHourEnd = 17;     // Ora de incheiere a tranzactionarii (ora serverului)
+input bool     EnableFridayClose = true;// Activeaza/Dezactiveaza inchiderea automata Vineri
+input int      FridayCloseHour = 20;    // Ora de inchidere a tranzactiilor Vineri (ora serverului)
+
+//--- Handle-uri pentru indicatori
+int h_FastMA;
+int h_SlowMA;
+int h_RSI;
+int h_ATR;
+
+//--- Variabile globale pentru cerintele brokerului
+int    min_stop_level = 0;
+int    price_digits = 5;
+double min_point;
+
+//--- Instanta CTrade pentru operatiuni de tranzactionare
+CTrade trade;
+
+//--- Functia de initializare a expertului
+int OnInit()
+  {
+   //--- Preia cerintele brokerului pentru simbolul curent
+   min_stop_level = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   price_digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   min_point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+
+   //--- Seteaza numarul magic pentru CTrade
+   trade.SetExpertMagicNumber(MagicNumber);
+
+   //--- Obtine handle pentru Media Mobila Rapida
+   h_FastMA = iMA(_Symbol, _Period, FastMA_Period, 0, MA_Method, MA_Applied_Price);
+   if(h_FastMA == INVALID_HANDLE)
+     {
+      Print("Eroare la crearea handle-ului pentru Media Mobila Rapida. Cod eroare: ", GetLastError());
+      return(INIT_FAILED);
+     }
+
+   //--- Obtine handle pentru Media Mobila Lenta
+   h_SlowMA = iMA(_Symbol, _Period, SlowMA_Period, 0, MA_Method, MA_Applied_Price);
+   if(h_SlowMA == INVALID_HANDLE)
+     {
+      Print("Eroare la crearea handle-ului pentru Media Mobila Lenta. Cod eroare: ", GetLastError());
+      return(INIT_FAILED);
+     }
+
+   //--- Obtine handle pentru RSI
+   h_RSI = iRSI(_Symbol, _Period, RSI_Period, RSI_Applied_Price);
+   if(h_RSI == INVALID_HANDLE)
+     {
+      Print("Eroare la crearea handle-ului pentru RSI. Cod eroare: ", GetLastError());
+      return(INIT_FAILED);
+     }
+
+   //--- Obtine handle pentru ATR
+   h_ATR = iATR(_Symbol, _Period, ATR_Period);
+   if(h_ATR == INVALID_HANDLE)
+     {
+      Print("Eroare la crearea handle-ului pentru ATR. Cod eroare: ", GetLastError());
+      return(INIT_FAILED);
+     }
+
+   //--- Initializare reusita
+   Print("Expert Advisor initializat cu succes.");
+   return(INIT_SUCCEEDED);
+  }
+
+//--- Functia de deinitializare a expertului
+void OnDeinit(const int reason)
+  {
+   //--- Elibereaza resursele alocate indicatorilor
+   IndicatorRelease(h_FastMA);
+   IndicatorRelease(h_SlowMA);
+   IndicatorRelease(h_RSI);
+   IndicatorRelease(h_ATR);
+   Print("Expert Advisor deinitializat.");
+  }
+
+void HandleTrailingStop();
+void CheckForNewTrade();
+void HandleFridayClose();
+
+//--- Functia tick a expertului
+void OnTick()
+  {
+   //--- Managementul inchiderii de Vineri ruleaza la fiecare tick
+   HandleFridayClose();
+
+   //--- Managementul Trailing Stop ruleaza la fiecare tick
+   HandleTrailingStop();
+
+   //--- Logica de intrare in tranzactie ruleaza doar pe o bara noua
+   CheckForNewTrade();
+  }
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Verifica si executa o noua tranzactie.                           |
+//+------------------------------------------------------------------+
+void CheckForNewTrade()
+  {
+   //--- FILTRU DE TIMP: Verifica daca tranzactionarea este permisa la ora curenta
+   if(EnableTimeFilter)
+     {
+      MqlDateTime current_time;
+      TimeCurrent(current_time);
+      if(current_time.hour < TradingHourStart || current_time.hour >= TradingHourEnd)
+        {
+         return; // In afara orelor de tranzactionare
+        }
+     }
+
+   //--- Functie helper pentru verificarea unei bare noi
+   static datetime last_bar_time = 0;
+   datetime current_bar_time = iTime(_Symbol, _Period, 0);
+
+   if(current_bar_time == last_bar_time)
+     {
+      return; // Nu este o bara noua
+     }
+   last_bar_time = current_bar_time;
+
+   //--- Verifica daca este permis sa se deschida o noua tranzactie
+   if(CountCurrentChartPositions() >= MaxOpenTrades)
+     {
+      return;
+     }
+
+   //--- Defineste array-urile optimizate pentru a stoca datele indicatorilor
+   double arr_FastMA[2], arr_SlowMA[2], arr_RSI[2], arr_ATR[1]; // RSI size increased to 2
+
+   //--- Obtine valorile indicatorilor de pe ultimele 2 bare inchise
+   if(CopyBuffer(h_FastMA, 0, 1, 2, arr_FastMA) < 2 || CopyBuffer(h_SlowMA, 0, 1, 2, arr_SlowMA) < 2 ||
+      CopyBuffer(h_RSI, 0, 1, 2, arr_RSI) < 2 || CopyBuffer(h_ATR, 0, 1, 1, arr_ATR) < 1)
+     {
+      Print("Eroare la copierea datelor din bufferele indicatorilor: ", GetLastError());
+      return;
+     }
+
+   //--- Conditii de Stare de Trend (MA rapid vs MA lent pe ultima bara inchisa)
+   // Corectat: Indicele [0] este acum folosit pentru a verifica starea trendului, conform review-ului.
+   bool is_uptrend = arr_FastMA[0] > arr_SlowMA[0];
+   bool is_downtrend = arr_FastMA[0] < arr_SlowMA[0];
+
+   //--- Semnale de intrare bazate pe trecerea RSI de nivelul 50 (Corectat)
+   // Asteptam ca RSI sa treaca de 50 IN SUS (de la [1] la [0])
+   bool rsi_cross_above_50 = arr_RSI[1] < 50 && arr_RSI[0] >= 50;
+   // Asteptam ca RSI sa treaca de 50 IN JOS (de la [1] la [0])
+   bool rsi_cross_below_50 = arr_RSI[1] > 50 && arr_RSI[0] <= 50;
+
+   //--- Semnale finale: intrare in directia trendului cand momentum-ul revine
+   bool buy_signal = is_uptrend && rsi_cross_above_50;
+   bool sell_signal = is_downtrend && rsi_cross_below_50;
+
+   //--- Calculeaza valoarea ATR de pe bara semnalului
+   double atr_value = arr_ATR[0];
+
+   if(buy_signal)
+     {
+      double entry_price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      double stop_loss_price = AdjustStopLoss(entry_price - atr_value * ATR_Multiplier_SL, ORDER_TYPE_BUY);
+      double take_profit_price = AdjustTakeProfit(entry_price + atr_value * ATR_Multiplier_TP, ORDER_TYPE_BUY);
+      if(trade.Buy(LotSize, _Symbol, entry_price, stop_loss_price, take_profit_price, "Buy Signal"))
+        {
+         Print("Tranzactie BUY deschisa: ", trade.ResultDeal(), " la pretul ", trade.ResultPrice());
+        }
+      else
+        {
+         Print("Eroare la deschiderea tranzactiei BUY: ", trade.ResultRetcodeDescription());
+        }
+     }
+   else if(sell_signal)
+     {
+      double entry_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      double stop_loss_price = AdjustStopLoss(entry_price + atr_value * ATR_Multiplier_SL, ORDER_TYPE_SELL);
+      double take_profit_price = AdjustTakeProfit(entry_price - atr_value * ATR_Multiplier_TP, ORDER_TYPE_SELL);
+      if(trade.Sell(LotSize, _Symbol, entry_price, stop_loss_price, take_profit_price, "Sell Signal"))
+        {
+         Print("Tranzactie SELL deschisa: ", trade.ResultDeal(), " la pretul ", trade.ResultPrice());
+        }
+      else
+        {
+         Print("Eroare la deschiderea tranzactiei SELL: ", trade.ResultRetcodeDescription());
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Functii helper pentru ajustarea preturilor                       |
+//+------------------------------------------------------------------+
+double NormalizePrice(double price)
+  {
+   return NormalizeDouble(price, price_digits);
+  }
+
+double AdjustStopLoss(double price, ENUM_ORDER_TYPE order_type)
+  {
+   double adjusted_price = NormalizePrice(price);
+   if(order_type == ORDER_TYPE_BUY)
+     {
+      double min_distance = min_stop_level * min_point;
+      double current_price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      if(adjusted_price > current_price - min_distance)
+        {
+         adjusted_price = current_price - min_distance;
+        }
+     }
+   else // ORDER_TYPE_SELL
+     {
+      double min_distance = min_stop_level * min_point;
+      double current_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      if(adjusted_price < current_price + min_distance)
+        {
+         adjusted_price = current_price + min_distance;
+        }
+     }
+   return NormalizePrice(adjusted_price);
+  }
+
+double AdjustTakeProfit(double price, ENUM_ORDER_TYPE order_type)
+  {
+   double adjusted_price = NormalizePrice(price);
+   if(order_type == ORDER_TYPE_BUY)
+     {
+      double min_distance = min_stop_level * min_point;
+      double current_price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      if(adjusted_price < current_price + min_distance)
+        {
+         adjusted_price = current_price + min_distance;
+        }
+     }
+   else // ORDER_TYPE_SELL
+     {
+      double min_distance = min_stop_level * min_point;
+      double current_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      if(adjusted_price > current_price - min_distance)
+        {
+         adjusted_price = current_price - min_distance;
+        }
+     }
+   return NormalizePrice(adjusted_price);
+  }
+
+//+------------------------------------------------------------------+
+//| Gestioneaza inchiderea automata a tranzactiilor Vineri.          |
+//+------------------------------------------------------------------+
+void HandleFridayClose()
+  {
+   //--- Verifica daca optiunea este activata
+   if(!EnableFridayClose)
+      return;
+
+   //--- Preia timpul curent al serverului
+   MqlDateTime current_time;
+   TimeCurrent(current_time);
+
+   //--- Verifica daca este Vineri si ora de inchidere a fost atinsa
+   if(current_time.day_of_week == FRIDAY && current_time.hour >= FridayCloseHour)
+     {
+      //--- Itereaza prin toate pozitiile si le inchide
+      for(int i = PositionsTotal() - 1; i >= 0; i--)
+        {
+         ulong ticket = PositionGetTicket(i);
+         if(PositionSelectByTicket(ticket))
+           {
+            if(PositionGetInteger(POSITION_MAGIC) == MagicNumber &&
+               PositionGetString(POSITION_SYMBOL) == _Symbol)
+              {
+               if(!trade.PositionClose(ticket))
+                 {
+                  Print("Eroare la inchiderea pozitiei #", ticket, " Vineri: ", trade.ResultRetcodeDescription());
+                 }
+               else
+                 {
+                  Print("Pozitia #", ticket, " a fost inchisa automat Vineri.");
+                 }
+              }
+           }
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//| Numara pozitiile deschise de acest EA pe graficul curent.        |
+//+------------------------------------------------------------------+
+int CountCurrentChartPositions()
+  {
+   int count = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(PositionSelectByTicket(ticket))
+        {
+         if(PositionGetInteger(POSITION_MAGIC) == MagicNumber &&
+            PositionGetString(POSITION_SYMBOL) == _Symbol)
+           {
+            count++;
+           }
+        }
+     }
+   return count;
+  }
+
+//+------------------------------------------------------------------+
+//| Gestioneaza Trailing Stop pentru pozitiile deschise.             |
+//+------------------------------------------------------------------+
+void HandleTrailingStop()
+  {
+   //--- Verifica daca Trailing Stop este activat
+   if(TrailingStop <= 0)
+      return;
+
+   //--- Itereaza prin toate pozitiile deschise
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      //--- Selecteaza pozitia si verifica daca apartine acestui EA
+      ulong position_ticket = PositionGetTicket(i);
+      if(PositionSelectByTicket(position_ticket) &&
+         PositionGetInteger(POSITION_MAGIC) == MagicNumber &&
+         PositionGetString(POSITION_SYMBOL) == _Symbol)
+        {
+         long position_type = PositionGetInteger(POSITION_TYPE);
+         double open_price = PositionGetDouble(POSITION_PRICE_OPEN);
+         double current_sl = PositionGetDouble(POSITION_SL);
+         double trailing_stop_dist = TrailingStop * _Point;
+
+         //--- Gestioneaza Trailing Stop pentru pozitiile de BUY
+         if(position_type == POSITION_TYPE_BUY)
+           {
+            double current_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+            double new_sl = current_price - trailing_stop_dist;
+
+            //--- Conditii pentru a muta SL-ul
+            if(new_sl > open_price && (current_sl < new_sl || current_sl == 0))
+              {
+               if(trade.PositionModify(position_ticket, new_sl, PositionGetDouble(POSITION_TP)))
+                 {
+                  Print("Trailing Stop mutat pentru pozitia BUY #", position_ticket, " la ", new_sl);
+                 }
+              }
+           }
+         //--- Gestioneaza Trailing Stop pentru pozitiile de SELL
+         else if(position_type == POSITION_TYPE_SELL)
+           {
+            double current_price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+            double new_sl = current_price + trailing_stop_dist;
+
+            //--- Conditii pentru a muta SL-ul
+            if(new_sl < open_price && (current_sl > new_sl || current_sl == 0))
+              {
+               if(trade.PositionModify(position_ticket, new_sl, PositionGetDouble(POSITION_TP)))
+                 {
+                  Print("Trailing Stop mutat pentru pozitia SELL #", position_ticket, " la ", new_sl);
+                 }
+              }
+           }
+        }
+     }
+  }
