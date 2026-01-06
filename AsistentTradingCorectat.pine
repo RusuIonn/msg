@@ -1,30 +1,29 @@
-//@version=5
+//@version=6
 indicator("Asistent Trading Complet Corectat", overlay=true, max_labels_count=500)
 
 // --- Grup: Inputuri Utilizator
 // =============================================================================
-accountSize = input.float(1000, "Dimensiune cont (€)", group="Managementul Riscului")
-riskPercent = input.float(1, "Risc per tranzacție (%)", group="Managementul Riscului")
-riskMultiplier = input.float(2.0, "Factor Risc/Profit (RR)", group="Managementul Riscului")
-showAlerts = input.bool(true, "Activează Alertele?", group="Alerte")
+var g_risk = "Managementul Riscului"
+var g_alerts = "Alerte"
+var g_indicators = "Indicatori"
+
+accountSize = input.float(1000, "Dimensiune cont (€)", group = g_risk)
+riskPercent = input.float(1, "Risc per tranzacție (%)", group = g_risk)
+riskMultiplier = input.float(2.0, "Factor Risc/Profit (RR)", group = g_risk)
+showAlerts = input.bool(true, "Activează Alertele?", group = g_alerts)
 
 // --- Grup: Indicatori Tehnici
 // =============================================================================
-// Medii Mobile
-fastLength = input.int(14, "MA Rapidă", group="Indicatori")
-slowLength = input.int(50, "MA Lentă", group="Indicatori")
-// RSI
-rsiLength = input.int(14, "RSI Lungime", group="Indicatori")
-rsiOverbought = input.int(70, "RSI Supracumpărat", group="Indicatori")
-rsiOversold = input.int(30, "RSI Supravândut", group="Indicatori")
-// MACD
-macdFast = input.int(12, "MACD Fast", group="Indicatori")
-macdSlow = input.int(26, "MACD Slow", group="Indicatori")
-macdSignal = input.int(9, "MACD Signal", group="Indicatori")
-// ATR
-atrLength = input.int(14, "ATR Lungime", group="Indicatori")
-// Suport si Rezistenta
-supportResistanceLookback = input.int(20, "Perioada Suport/Rezistență", group="Indicatori")
+fastLength = input.int(14, "MA Rapidă", group = g_indicators)
+slowLength = input.int(50, "MA Lentă", group = g_indicators)
+rsiLength = input.int(14, "RSI Lungime", group = g_indicators)
+rsiOverbought = input.int(70, "RSI Supracumpărat", group = g_indicators)
+rsiOversold = input.int(30, "RSI Supravândut", group = g_indicators)
+macdFast = input.int(12, "MACD Fast", group = g_indicators)
+macdSlow = input.int(26, "MACD Slow", group = g_indicators)
+macdSignal = input.int(9, "MACD Signal", group = g_indicators)
+atrLength = input.int(14, "ATR Lungime", group = g_indicators)
+supportResistanceLookback = input.int(20, "Perioada Suport/Rezistență", group = g_indicators)
 
 // --- Calcul Indicatori
 // =============================================================================
@@ -52,7 +51,7 @@ var float shortTarget = na
 
 // --- Calcul Niveluri de Intrare / Stop / Target (doar la semnal)
 // =============================================================================
-if (longSignal)
+if longSignal
     longEntry := close
     longStop := longEntry - atrValue
     longTarget := longEntry + atrValue * riskMultiplier
@@ -61,7 +60,7 @@ if (longSignal)
     shortStop := na
     shortTarget := na
 
-if (shortSignal)
+if shortSignal
     shortEntry := close
     shortStop := shortEntry + atrValue
     shortTarget := shortEntry - atrValue * riskMultiplier
@@ -102,37 +101,41 @@ plot(shortTarget, color=color.new(color.green, 0), title="Target Short", style=p
 
 // --- Etichete Informative pe Grafic
 // =============================================================================
-if (longSignal)
+if longSignal
+    string labelTextLong = str.format("CUMPĂRĂ\nIntrare: {0}\nStop: {1}\nTarget: {2}\nUnități: {3}",
+         str.tostring(longEntry, format.mintick),
+         str.tostring(longStop, format.mintick),
+         str.tostring(longTarget, format.mintick),
+         str.tostring(longUnits, "#.##"))
     label.new(bar_index, low - atrValue * 0.5,
-      text="CUMPĂRĂ\n" +
-      "Intrare: " + str.tostring(longEntry, format.mintick) + "\n" +
-      "Stop: " + str.tostring(longStop, format.mintick) + "\n" +
-      "Target: " + str.tostring(longTarget, format.mintick) + "\n" +
-      "Unități: " + str.tostring(longUnits, "#.##"),
+      text=labelTextLong,
       style=label.style_label_up, color=color.new(color.green, 20), textcolor=color.white, size=size.small)
 
-if (shortSignal)
+if shortSignal
+    string labelTextShort = str.format("VINDE\nIntrare: {0}\nStop: {1}\nTarget: {2}\nUnități: {3}",
+         str.tostring(shortEntry, format.mintick),
+         str.tostring(shortStop, format.mintick),
+         str.tostring(shortTarget, format.mintick),
+         str.tostring(shortUnits, "#.##"))
     label.new(bar_index, high + atrValue * 0.5,
-      text="VINDE\n" +
-      "Intrare: " + str.tostring(shortEntry, format.mintick) + "\n" +
-      "Stop: " + str.tostring(shortStop, format.mintick) + "\n" +
-      "Target: " + str.tostring(shortTarget, format.mintick) + "\n" +
-      "Unități: " + str.tostring(shortUnits, "#.##"),
+      text=labelTextShort,
       style=label.style_label_down, color=color.new(color.red, 20), textcolor=color.white, size=size.small)
 
-// --- Alerte Dinamice
+// --- Alerte Dinamice (Compatibil v6)
 // =============================================================================
-// Construim mesajul de alertă dinamic
-alertMessageLong = "Semnal CUMPĂRĂ " + syminfo.ticker + " @ " + str.tostring(close, format.mintick) + "\n" +
-                   "Stop: " + str.tostring(longStop, format.mintick) + "\n" +
-                   "Target: " + str.tostring(longTarget, format.mintick)
-
-alertMessageShort = "Semnal VINDE " + syminfo.ticker + " @ " + str.tostring(close, format.mintick) + "\n" +
-                    "Stop: " + str.tostring(shortStop, format.mintick) + "\n" +
-                    "Target: " + str.tostring(shortTarget, format.mintick)
-
-if (showAlerts)
-    if (longSignal)
+if showAlerts
+    if longSignal
+        string alertMessageLong = str.format("Semnal CUMPĂRĂ {0} @ {1}\nStop: {2}\nTarget: {3}",
+         syminfo.ticker,
+         str.tostring(close, format.mintick),
+         str.tostring(longStop, format.mintick),
+         str.tostring(longTarget, format.mintick))
         alert(alertMessageLong, alert.freq_once_per_bar)
-    if (shortSignal)
+
+    if shortSignal
+        string alertMessageShort = str.format("Semnal VINDE {0} @ {1}\nStop: {2}\nTarget: {3}",
+         syminfo.ticker,
+         str.tostring(close, format.mintick),
+         str.tostring(shortStop, format.mintick),
+         str.tostring(shortTarget, format.mintick))
         alert(alertMessageShort, alert.freq_once_per_bar)
