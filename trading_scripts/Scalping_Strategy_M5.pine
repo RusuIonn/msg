@@ -1,5 +1,5 @@
 //@version=5
-strategy("Scalping Strategy M15", overlay=true, initial_capital=1000, default_qty_value=1, default_qty_type=strategy.percent_of_equity, commission_type=strategy.commission.percent, commission_value=0.075)
+strategy("Scalping Strategy M5", overlay=true, initial_capital=1000, default_qty_value=1, default_qty_type=strategy.percent_of_equity, commission_type=strategy.commission.percent, commission_value=0.075)
 
 // --- INPUTS ---
 // EMA Settings
@@ -38,12 +38,18 @@ if (longCondition)
     longStopPrice := close - atrValue * atrMultiplier
     longTakeProfitPrice := close + (close - longStopPrice) * riskRewardRatio
     strategy.entry("Long", strategy.long)
+    // Create a label for the long entry
+    longEntryLabelText = "Intrare Long: " + str.tostring(close, "#.#####") + "\nSL: " + str.tostring(longStopPrice, "#.#####") + "\nTP: " + str.tostring(longTakeProfitPrice, "#.#####")
+    label.new(bar_index, low, text=longEntryLabelText, color=color.new(color.green, 75), textcolor=color.white, style=label.style_labelup, yloc=yloc.belowbar)
 
 // Calculate SL/TP and Enter Short
 if (shortCondition)
     shortStopPrice := close + atrValue * atrMultiplier
     shortTakeProfitPrice := close - (shortStopPrice - close) * riskRewardRatio
     strategy.entry("Short", strategy.short)
+    // Create a label for the short entry
+    shortEntryLabelText = "Intrare Short: " + str.tostring(close, "#.#####") + "\nSL: " + str.tostring(shortStopPrice, "#.#####") + "\nTP: " + str.tostring(shortTakeProfitPrice, "#.#####")
+    label.new(bar_index, high, text=shortEntryLabelText, color=color.new(color.red, 75), textcolor=color.white, style=label.style_labeldown, yloc=yloc.abovebar)
 
 // Manage Exits for open positions
 if strategy.position_size > 0
@@ -57,10 +63,6 @@ if strategy.position_size < 0
 plot(fastEma, color=color.new(color.blue, 0), title="Fast EMA")
 plot(slowEma, color=color.new(color.orange, 0), title="Slow EMA")
 plot(trendEma, color=color.new(color.red, 0), title="Trend EMA", linewidth=2)
-
-// Plot entry signals
-plotshape(series=longCondition, title="Long Signal", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.small)
-plotshape(series=shortCondition, title="Short Signal", location=location.abovebar, color=color.red, style=shape.triangledown, size=size.small)
 
 // Plot SL/TP lines only when a position is active
 plot(strategy.position_size > 0 ? longStopPrice : na, title="Long SL", color=color.new(color.red, 0), style=plot.style_linebr)
