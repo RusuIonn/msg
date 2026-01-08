@@ -19,11 +19,15 @@ trendEma = ta.ema(close, trendEmaPeriod)
 atrValue = ta.atr(atrPeriod)
 
 // --- STRATEGY CONDITIONS ---
-// Long Entry Condition: Price is above trend EMA and fast EMA crosses above slow EMA
-longCondition = close > trendEma and ta.crossover(fastEma, slowEma)
+// Calculate crossovers globally for consistency
+emaCrossover = ta.crossover(fastEma, slowEma)
+emaCrossunder = ta.crossunder(fastEma, slowEma)
 
-// Short Entry Condition: Price is below trend EMA and fast EMA crosses below slow EMA
-shortCondition = close < trendEma and ta.crossunder(fastEma, slowEma)
+// Long Entry Condition: Price is above trend EMA and a crossover occurred
+longCondition = close > trendEma and emaCrossover
+
+// Short Entry Condition: Price is below trend EMA and a crossunder occurred
+shortCondition = close < trendEma and emaCrossunder
 
 // --- RISK MANAGEMENT & EXECUTION ---
 
@@ -40,7 +44,7 @@ if longCondition
     strategy.entry("Long", strategy.long)
     // Create a label for the long entry
     longEntryLabelText = str.format("Intrare Long: {0, number, #.#####}\nSL: {1, number, #.#####}\nTP: {2, number, #.#####}", close, longStopPrice, longTakeProfitPrice)
-    label.new(bar_index, low, text=longEntryLabelText, color=color.new(color.green, 75), textcolor=color.white, style=label.style_labelup, yloc=yloc.belowbar)
+    label.new(bar_index, low, text=longEntryLabelText, color=color.new(color.green, 75), textcolor=color.white, style=label.style_label_up, yloc=yloc.belowbar)
 
 // Calculate SL/TP and Enter Short
 if shortCondition
@@ -49,7 +53,7 @@ if shortCondition
     strategy.entry("Short", strategy.short)
     // Create a label for the short entry
     shortEntryLabelText = str.format("Intrare Short: {0, number, #.#####}\nSL: {1, number, #.#####}\nTP: {2, number, #.#####}", close, shortStopPrice, shortTakeProfitPrice)
-    label.new(bar_index, high, text=shortEntryLabelText, color=color.new(color.red, 75), textcolor=color.white, style=label.style_labeldown, yloc=yloc.abovebar)
+    label.new(bar_index, high, text=shortEntryLabelText, color=color.new(color.red, 75), textcolor=color.white, style=label.style_label_down, yloc=yloc.abovebar)
 
 // Manage Exits for open positions
 if strategy.position_size > 0
