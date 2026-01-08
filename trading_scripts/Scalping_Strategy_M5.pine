@@ -1,4 +1,4 @@
-//@version=5
+//@version=6
 strategy("Scalping Strategy M5", overlay=true, initial_capital=1000, default_qty_value=1, default_qty_type=strategy.percent_of_equity, commission_type=strategy.commission.percent, commission_value=0.075)
 
 // --- INPUTS ---
@@ -34,21 +34,21 @@ var float shortStopPrice = na
 var float shortTakeProfitPrice = na
 
 // Calculate SL/TP and Enter Long
-if (longCondition)
+if longCondition
     longStopPrice := close - atrValue * atrMultiplier
     longTakeProfitPrice := close + (close - longStopPrice) * riskRewardRatio
     strategy.entry("Long", strategy.long)
     // Create a label for the long entry
-    longEntryLabelText = "Intrare Long: " + str.tostring(close, "#.#####") + "\nSL: " + str.tostring(longStopPrice, "#.#####") + "\nTP: " + str.tostring(longTakeProfitPrice, "#.#####")
+    longEntryLabelText = str.format("Intrare Long: {0, number, #.#####}\nSL: {1, number, #.#####}\nTP: {2, number, #.#####}", close, longStopPrice, longTakeProfitPrice)
     label.new(bar_index, low, text=longEntryLabelText, color=color.new(color.green, 75), textcolor=color.white, style=label.style_labelup, yloc=yloc.belowbar)
 
 // Calculate SL/TP and Enter Short
-if (shortCondition)
+if shortCondition
     shortStopPrice := close + atrValue * atrMultiplier
     shortTakeProfitPrice := close - (shortStopPrice - close) * riskRewardRatio
     strategy.entry("Short", strategy.short)
     // Create a label for the short entry
-    shortEntryLabelText = "Intrare Short: " + str.tostring(close, "#.#####") + "\nSL: " + str.tostring(shortStopPrice, "#.#####") + "\nTP: " + str.tostring(shortTakeProfitPrice, "#.#####")
+    shortEntryLabelText = str.format("Intrare Short: {0, number, #.#####}\nSL: {1, number, #.#####}\nTP: {2, number, #.#####}", close, shortStopPrice, shortTakeProfitPrice)
     label.new(bar_index, high, text=shortEntryLabelText, color=color.new(color.red, 75), textcolor=color.white, style=label.style_labeldown, yloc=yloc.abovebar)
 
 // Manage Exits for open positions
