@@ -1,0 +1,62 @@
+//@version=6
+indicator("Support & Resistance Pivots", shorttitle="S/R Pivots", overlay=true)
+
+// --- INPUTS ---
+int pivotLookback = input.int(15, title="Pivot Lookback Period", minval=1)
+int maxLines = input.int(5, title="Max Number of S/R Lines", minval=1)
+
+// --- PIVOT DETECTION ---
+float pivotHighPrice = ta.pivothigh(high, pivotLookback, pivotLookback)
+float pivotLowPrice = ta.pivotlow(low, pivotLookback, pivotLookback)
+
+// --- LINE MANAGEMENT ---
+// Declare persistent arrays to hold the line objects
+var array<line> resistanceLines = array.new<line>()
+var array<line> supportLines = array.new<line>()
+
+// Function to check for and remove broken lines
+check_and_remove_broken_lines(array<line> lineArray, bool isResistance) =>
+    // Loop backwards from the end of the array to safely remove items while iterating
+    for i = lineArray.size() - 1 to 0 by -1
+        line currentLine = lineArray.get(i)
+        float linePrice = line.get_y1(currentLine)
+
+        // Define the break condition
+        bool isBroken = isResistance ? close > linePrice : close < linePrice
+
+        if isBroken
+            // If the line is broken, delete it from the chart and remove it from our tracking array
+            line.delete(currentLine)
+            lineArray.remove(i)
+
+// Check for broken lines on each bar
+check_and_remove_broken_lines(resistanceLines, true)
+check_and_remove_broken_lines(supportLines, false)
+
+// Function to manage and draw a new line
+manage_line_array(array<line> lineArray, float price, color lineColor) =>
+    // Create a new line when a pivot is found
+    newLine = line.new(bar_index[pivotLookback], price, bar_index, price, extend=extend.right, color=lineColor, width=2)
+
+    // Add the new line to the array
+    lineArray.push(newLine)
+
+    // If the array size exceeds the max limit, remove the oldest line
+    if lineArray.size() > maxLines
+        line oldestLine = lineArray.shift()
+        line.delete(oldestLine)
+
+// Detect and draw new resistance lines
+if not na(pivotHighPrice)
+    manage_line_array(resistanceLines, pivotHighPrice, color.red)
+
+// Detect and draw new support lines
+if not na(pivotLowPrice)
+    manage_line_array(supportLines, pivotLowPrice, color.green)
+
+// Update the end point of all lines on every new bar to keep them extending
+if barstate.isrealtime or barstate.islast
+    for l in resistanceLines
+        line.set_x2(l, bar_index)
+    for l in supportLines
+        line.set_x2(l, bar_index)
