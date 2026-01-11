@@ -1,0 +1,77 @@
+//@version=6
+strategy("Scalping Strategy M5 with Pending Orders", overlay=true, initial_capital=1000, default_qty_value=1, default_qty_type=strategy.percent_of_equity, commission_type=strategy.commission.percent, commission_value=0.075)
+
+// --- INPUTS ---
+// EMA Settings
+fastEmaPeriod = input.int(9, title="Fast EMA Period")
+slowEmaPeriod = input.int(21, title="Slow EMA Period")
+trendEmaPeriod = input.int(50, title="Trend EMA Period")
+
+// Risk Management
+atrPeriod = input.int(14, title="ATR Period")
+atrMultiplier = input.float(2.0, title="ATR Multiplier for SL")
+riskRewardRatio = input.float(1.5, title="Risk/Reward Ratio")
+
+// --- INDICATOR CALCULATIONS ---
+fastEma = ta.ema(close, fastEmaPeriod)
+slowEma = ta.ema(close, slowEmaPeriod)
+trendEma = ta.ema(close, trendEmaPeriod)
+atrValue = ta.atr(atrPeriod)
+
+// --- STRATEGY CONDITIONS ---
+// Calculate crossovers globally for consistency
+emaCrossover = ta.crossover(fastEma, slowEma)
+emaCrossunder = ta.crossunder(fastEma, slowEma)
+
+// Long Entry Condition: Price is above trend EMA and a crossover occurred
+longCondition = close > trendEma and emaCrossover
+
+// Short Entry Condition: Price is below trend EMA and a crossunder occurred
+shortCondition = close < trendEma and emaCrossunder
+
+// --- RISK MANAGEMENT & EXECUTION ---
+
+// Use 'var' to store SL/TP levels so they persist across bars until a new trade is entered.
+var float longStopPrice = na
+var float longTakeProfitPrice = na
+var float shortStopPrice = na
+var float shortTakeProfitPrice = na
+
+// Calculate SL/TP and place Pending Long Order
+if longCondition
+    longEntryPrice = high
+    longStopPrice := longEntryPrice - atrValue * atrMultiplier
+    longTakeProfitPrice := longEntryPrice + (longEntryPrice - longStopPrice) * riskRewardRatio
+    strategy.entry("Long", strategy.long, stop=longEntryPrice)
+    // Create a label for the pending long order
+    longEntryLabelText = str.format("Ordin Long @ {0, number, #.#####}\nSL: {1, number, #.#####}\nTP: {2, number, #.#####}", longEntryPrice, longStopPrice, longTakeProfitPrice)
+    label.new(bar_index, low, text=longEntryLabelText, color=color.new(color.green, 75), textcolor=color.white, style=label.style_label_up, yloc=yloc.belowbar)
+
+// Calculate SL/TP and place Pending Short Order
+if shortCondition
+    shortEntryPrice = low
+    shortStopPrice := shortEntryPrice + atrValue * atrMultiplier
+    shortTakeProfitPrice := shortEntryPrice - (shortStopPrice - shortEntryPrice) * riskRewardRatio
+    strategy.entry("Short", strategy.short, stop=shortEntryPrice)
+    // Create a label for the pending short order
+    shortEntryLabelText = str.format("Ordin Short @ {0, number, #.#####}\nSL: {1, number, #.#####}\nTP: {2, number, #.#####}", shortEntryPrice, shortStopPrice, shortTakeProfitPrice)
+    label.new(bar_index, high, text=shortEntryLabelText, color=color.new(color.red, 75), textcolor=color.white, style=label.style_label_down, yloc=yloc.abovebar)
+
+// Manage Exits for open positions
+if strategy.position_size > 0
+    strategy.exit("Exit Long", from_entry="Long", stop=longStopPrice, limit=longTakeProfitPrice)
+
+if strategy.position_size < 0
+    strategy.exit("Exit Short", from_entry="Short", stop=shortStopPrice, limit=shortTakeProfitPrice)
+
+// --- PLOTTING ---
+// Plot EMAs
+plot(fastEma, color=color.new(color.blue, 0), title="Fast EMA")
+plot(slowEma, color=color.new(color.orange, 0), title="Slow EMA")
+plot(trendEma, color=color.new(color.red, 0), title="Trend EMA", linewidth=2)
+
+// Plot SL/TP lines only when a position is active
+plot(strategy.position_size > 0 ? longStopPrice : na, title="Long SL", color=color.new(color.red, 0), style=plot.style_linebr)
+plot(strategy.position_size > 0 ? longTakeProfitPrice : na, title="Long TP", color=color.new(color.green, 0), style=plot.style_linebr)
+plot(strategy.position_size < 0 ? shortStopPrice : na, title="Short SL", color=color.new(color.red, 0), style=plot.style_linebr)
+plot(strategy.position_size < 0 ? shortTakeProfitPrice : na, title="Short TP", color=color.new(color.green, 0), style=plot.style_linebr)
