@@ -1,0 +1,141 @@
+//@version=6
+indicator("Asistent Trading Complet Corectat", overlay=true, max_labels_count=500)
+
+// --- Grup: Inputuri Utilizator
+// =============================================================================
+var g_risk = "Managementul Riscului"
+var g_alerts = "Alerte"
+var g_indicators = "Indicatori"
+
+accountSize = input.float(1000, "Dimensiune cont (€)", group = g_risk)
+riskPercent = input.float(1, "Risc per tranzacție (%)", group = g_risk)
+riskMultiplier = input.float(2.0, "Factor Risc/Profit (RR)", group = g_risk)
+showAlerts = input.bool(true, "Activează Alertele?", group = g_alerts)
+
+// --- Grup: Indicatori Tehnici
+// =============================================================================
+fastLength = input.int(14, "MA Rapidă", group = g_indicators)
+slowLength = input.int(50, "MA Lentă", group = g_indicators)
+rsiLength = input.int(14, "RSI Lungime", group = g_indicators)
+rsiOverbought = input.int(70, "RSI Supracumpărat", group = g_indicators)
+rsiOversold = input.int(30, "RSI Supravândut", group = g_indicators)
+macdFast = input.int(12, "MACD Fast", group = g_indicators)
+macdSlow = input.int(26, "MACD Slow", group = g_indicators)
+macdSignal = input.int(9, "MACD Signal", group = g_indicators)
+atrLength = input.int(14, "ATR Lungime", group = g_indicators)
+supportResistanceLookback = input.int(20, "Perioada Suport/Rezistență", group = g_indicators)
+
+// --- Calcul Indicatori
+// =============================================================================
+maFast = ta.sma(close, fastLength)
+maSlow = ta.sma(close, slowLength)
+rsiValue = ta.rsi(close, rsiLength)
+[macdLine, signalLine, _] = ta.macd(close, macdFast, macdSlow, macdSignal)
+atrValue = ta.atr(atrLength)
+support = ta.lowest(low, supportResistanceLookback)
+resistance = ta.highest(high, supportResistanceLookback)
+
+// --- Definirea Semnalelor de Tranzacționare
+// =============================================================================
+longSignal = ta.crossover(maFast, maSlow) and rsiValue < rsiOverbought and macdLine > signalLine
+shortSignal = ta.crossunder(maFast, maSlow) and rsiValue > rsiOversold and macdLine < signalLine
+
+// --- Managementul Stării Tranzacției (variabile persistente)
+// =============================================================================
+var float longEntry = na
+var float longStop = na
+var float longTarget = na
+var float shortEntry = na
+var float shortStop = na
+var float shortTarget = na
+
+// --- Calcul Niveluri de Intrare / Stop / Target (doar la semnal)
+// =============================================================================
+if longSignal
+    longEntry := close
+    longStop := longEntry - atrValue
+    longTarget := longEntry + atrValue * riskMultiplier
+    // Resetează valorile short pentru a curăța graficul
+    shortEntry := na
+    shortStop := na
+    shortTarget := na
+
+if shortSignal
+    shortEntry := close
+    shortStop := shortEntry + atrValue
+    shortTarget := shortEntry - atrValue * riskMultiplier
+    // Resetează valorile long pentru a curăța graficul
+    longEntry := na
+    longStop := na
+    longTarget := na
+
+// --- Calcul Unități/Loturi Recomandate
+// =============================================================================
+riskAmount = accountSize * (riskPercent / 100)
+// Folosim o valoare minimă pentru a evita împărțirea la zero
+stopDistanceLong = math.max(longEntry - longStop, 1e-9)
+stopDistanceShort = math.max(shortStop - shortEntry, 1e-9)
+
+longUnits = riskAmount / stopDistanceLong
+shortUnits = riskAmount / stopDistanceShort
+
+// --- Plotare pe Grafic
+// =============================================================================
+// Medii Mobile
+plot(maFast, color=color.new(color.blue, 0), title="MA Rapidă")
+plot(maSlow, color=color.new(color.red, 0), title="MA Lentă")
+
+// Suport și Rezistență
+plot(support, color=color.new(color.green, 50), title="Suport", style=plot.style_linebr)
+plot(resistance, color=color.new(color.red, 50), title="Rezistență", style=plot.style_linebr)
+
+// Semnale de Cumpărare/Vânzare
+plotshape(longSignal, title="Semnal Cumpărare", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.large)
+plotshape(shortSignal, title="Semnal Vânzare", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.large)
+
+// Niveluri de Stop și Target (se afișează doar după semnal)
+plot(longStop, color=color.new(color.red, 0), title="Stop Long", style=plot.style_circles, linewidth=2)
+plot(longTarget, color=color.new(color.green, 0), title="Target Long", style=plot.style_circles, linewidth=2)
+plot(shortStop, color=color.new(color.red, 0), title="Stop Short", style=plot.style_circles, linewidth=2)
+plot(shortTarget, color=color.new(color.green, 0), title="Target Short", style=plot.style_circles, linewidth=2)
+
+// --- Etichete Informative pe Grafic
+// =============================================================================
+if longSignal
+    string labelTextLong = str.format("CUMPĂRĂ\nIntrare: {0}\nStop: {1}\nTarget: {2}\nUnități: {3}",
+         str.tostring(longEntry, format.mintick),
+         str.tostring(longStop, format.mintick),
+         str.tostring(longTarget, format.mintick),
+         str.tostring(longUnits, "#.##"))
+    label.new(bar_index, low - atrValue * 0.5,
+      text=labelTextLong,
+      style=label.style_label_up, color=color.new(color.green, 20), textcolor=color.white, size=size.small)
+
+if shortSignal
+    string labelTextShort = str.format("VINDE\nIntrare: {0}\nStop: {1}\nTarget: {2}\nUnități: {3}",
+         str.tostring(shortEntry, format.mintick),
+         str.tostring(shortStop, format.mintick),
+         str.tostring(shortTarget, format.mintick),
+         str.tostring(shortUnits, "#.##"))
+    label.new(bar_index, high + atrValue * 0.5,
+      text=labelTextShort,
+      style=label.style_label_down, color=color.new(color.red, 20), textcolor=color.white, size=size.small)
+
+// --- Alerte Dinamice (Compatibil v6)
+// =============================================================================
+if showAlerts
+    if longSignal
+        string alertMessageLong = str.format("Semnal CUMPĂRĂ {0} @ {1}\nStop: {2}\nTarget: {3}",
+         syminfo.ticker,
+         str.tostring(close, format.mintick),
+         str.tostring(longStop, format.mintick),
+         str.tostring(longTarget, format.mintick))
+        alert(alertMessageLong, alert.freq_once_per_bar)
+
+    if shortSignal
+        string alertMessageShort = str.format("Semnal VINDE {0} @ {1}\nStop: {2}\nTarget: {3}",
+         syminfo.ticker,
+         str.tostring(close, format.mintick),
+         str.tostring(shortStop, format.mintick),
+         str.tostring(shortTarget, format.mintick))
+        alert(alertMessageShort, alert.freq_once_per_bar)
